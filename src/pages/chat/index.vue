@@ -350,8 +350,15 @@ const applyIncomingChatMessage = (ui, raw) => {
   const clientMsgId = ui?.clientMsgId != null ? String(ui.clientMsgId) : null
   const fromUidText = raw?.fromUid != null ? String(raw.fromUid) : ''
   const isSelf = fromUidText && String(fromUidText) === String(currentUserId.value)
-  if (clientMsgId && isSelf) {
-    const idx = messages.value.findIndex((m) => m?.pending && String(m.clientMsgId) === clientMsgId)
+  if (isSelf) {
+    let idx = -1
+    if (clientMsgId) {
+      idx = messages.value.findIndex((m) => m?.pending && String(m.clientMsgId) === clientMsgId)
+    }
+    if (idx < 0) {
+      // Fallback: use fromUid to deduplicate by finding the first pending message
+      idx = messages.value.findIndex((m) => m?.pending)
+    }
     if (idx >= 0) {
       const shouldAutoScroll = !isAwayFromBottom.value
       messages.value[idx] = { ...ui, pending: false }
@@ -436,6 +443,7 @@ const scheduleReportRead = (delayMs = 200) => {
 }
 
 const handleWsPayload = (payload) => {
+  console.log('handleWsPayload ->', payload)
   if (!payload || typeof payload !== 'object') return
 
   // Error handling
@@ -463,10 +471,14 @@ const handleWsPayload = (payload) => {
 
   // Is it a message? (Backend pushes ChatMessageDTO directly)
   if (payload.roomId != null && payload.id != null) {
+    console.log('Received raw message:', payload)
     const ui = mapChatMessageRespToUi(payload)
+    console.log('Mapped to UI:', ui)
     if (ui && String(payload.roomId) === String(roomId.value)) {
       applyIncomingChatMessage(ui, payload)
       scheduleReportRead()
+    } else {
+      console.log('Mismatch roomId or null ui', payload.roomId, roomId.value, ui)
     }
     return
   }
@@ -569,6 +581,9 @@ onLoad((options) => {
   }, 100)
 
   removeWsListener = imSocket.onMessage(handleWsPayload)
+  if (roomId.value) {
+    imSocket.subscribe(`/topic/room/${roomId.value}`, `room-${roomId.value}`)
+  }
   initKeyboardAvoiding()
 
   loadInitialMessages().catch(() => {})
@@ -576,6 +591,9 @@ onLoad((options) => {
 })
 
 onUnload(() => {
+  if (roomId.value) {
+    imSocket.unsubscribe(`room-${roomId.value}`)
+  }
   if (readReportTimer) clearTimeout(readReportTimer)
   readReportTimer = null
   try {

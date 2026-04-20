@@ -1,14 +1,29 @@
 <script>
+import imSocket from '@/utils/imSocket'
+import CONFIG from '@/config.js'
+
 export default {
   onLaunch: function () {
     console.log('App Launch')
+    this.checkAndConnectWs()
   },
   onShow: function () {
     console.log('App Show')
+    this.checkAndConnectWs()
   },
   onHide: function () {
     console.log('App Hide')
   },
+  methods: {
+    checkAndConnectWs() {
+      const token = uni.getStorageSync('token')
+      if (token && !imSocket.isConnected()) {
+        imSocket.connect({ token, terminalType: CONFIG.TERMINAL_TYPE }).catch((e) => {
+          console.error('WS Auto-connect failed:', e)
+        })
+      }
+    }
+  }
 }
 </script>
 

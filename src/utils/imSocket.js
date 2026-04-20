@@ -5,6 +5,7 @@ const WS_URL = CONFIG.WS_BASE_URL
 let socketTask = null
 let connectingPromise = null
 const messageListeners = new Set()
+const activeSubscriptions = new Map()
 let connected = false
 let currentToken = null
 
@@ -42,8 +43,15 @@ const encodeStompFrame = (command, headers, body) => {
 
 // Simple STOMP Frame Decoder
 const parseStompFrame = (data) => {
-  if (data === '\n') return null // Heartbeat
-  const parts = data.split('\n\n')
+  if (data === '\n' || data === '\r\n') return null // Heartbeat
+  let normalizedData = data.replace(/\r\n/g, '\n')
+  // Remove leading newlines that might be attached from previous heartbeats
+  while (normalizedData.startsWith('\n')) {
+    normalizedData = normalizedData.slice(1)
+  }
+  if (!normalizedData) return null
+
+  const parts = normalizedData.split('\n\n')
   if (parts.length < 2) return null
   const headersPart = parts[0]
   let bodyPart = parts.slice(1).join('\n\n')
@@ -122,29 +130,44 @@ const connect = ({ token, terminalType }) => {
       const data = evt?.data
       if (typeof data !== 'string') return
       
-      const frame = parseStompFrame(data)
-      if (!frame) return
-      
-      if (frame.command === 'CONNECTED') {
-        console.log('STOMP 连接成功')
-        connected = true
+      // A single WebSocket message might contain multiple STOMP frames separated by \x00
+      const framesData = data.split('\x00')
+      for (let i = 0; i < framesData.length; i++) {
+        let frameData = framesData[i]
+        // The last element might be empty if the string ends with \x00
+        if (!frameData && i === framesData.length - 1) continue
         
-        // Subscribe to user queue
-        const subFrame = encodeStompFrame('SUBSCRIBE', {
-          id: 'sub-0',
-          destination: '/user/queue/messages'
-        })
-        socketTask.send({ data: subFrame })
+        const frame = parseStompFrame(frameData)
+        if (!frame) continue
         
-        connectingPromise = null
-        resolve(true)
-      } else if (frame.command === 'MESSAGE') {
-        notifyMessageListeners(frame.body)
-      } else if (frame.command === 'ERROR') {
-        console.error('STOMP ERROR', frame.headers, frame.body)
-        if (!connected) {
+        if (frame.command === 'CONNECTED') {
+          console.log('STOMP 连接成功')
+          connected = true
+          
+          // Subscribe to user queue
+          const subFrame = encodeStompFrame('SUBSCRIBE', {
+            id: 'sub-0',
+            destination: '/user/queue/messages'
+          })
+          socketTask.send({ data: subFrame })
+          
+          // Restore active subscriptions
+          for (const [id, destination] of activeSubscriptions.entries()) {
+            const restoreFrame = encodeStompFrame('SUBSCRIBE', { id, destination })
+            socketTask.send({ data: restoreFrame })
+          }
+          
           connectingPromise = null
-          reject(new Error(frame.headers?.message || 'STOMP Error'))
+          resolve(true)
+        } else if (frame.command === 'MESSAGE') {
+          console.log('STOMP MESSAGE received:', frame.body)
+          notifyMessageListeners(frame.body)
+        } else if (frame.command === 'ERROR') {
+          console.error('STOMP ERROR', frame.headers, frame.body)
+          if (!connected) {
+            connectingPromise = null
+            reject(new Error(frame.headers?.message || 'STOMP Error'))
+          }
         }
       }
     })
@@ -209,10 +232,30 @@ const onMessage = (listener) => {
   }
 }
 
+const subscribe = (destination, id) => {
+  console.log('STOMP SUBSCRIBE:', destination, id)
+  activeSubscriptions.set(id, destination)
+  if (!socketTask || !connected) {
+    console.log('STOMP SUBSCRIBE deferred, not connected yet')
+    return
+  }
+  const frame = encodeStompFrame('SUBSCRIBE', { id, destination })
+  socketTask.send({ data: frame })
+}
+
+const unsubscribe = (id) => {
+  activeSubscriptions.delete(id)
+  if (!socketTask || !connected) return
+  const frame = encodeStompFrame('UNSUBSCRIBE', { id })
+  socketTask.send({ data: frame })
+}
+
 export default {
   connect,
   disconnect,
   send,
   isConnected,
-  onMessage
+  onMessage,
+  subscribe,
+  unsubscribe
 }
