@@ -83,13 +83,15 @@ const buildUserInfoFromLoginResp = (loginResp) => {
     return CONFIG.IMG_BASE_URL + text
   })()
   return {
+    ...loginResp, // Spread all raw fields from backend so we don't miss anything (name, accountNumber, departmentName)
     uid: loginResp?.uid,
     token: loginResp?.token,
-    name: loginResp?.fullName,
+    name: loginResp?.name || loginResp?.fullName, // prioritize the new 'name' field
     avatar,
-    role: roleText,
-    department: loginResp?.department,
+    role: loginResp?.role || roleText, // Keep the raw string role from backend
+    department: loginResp?.departmentName || loginResp?.department,
     className: loginResp?.className,
+    accountNumber: loginResp?.accountNumber,
     id: loginResp?.accountNumber
   }
 }

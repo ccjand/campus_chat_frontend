@@ -17,12 +17,19 @@
         </view>
         <view class="info-content">
           <view class="name-row">
-            <text class="name">{{ userInfo.name }}</text>
+            <!-- For real name, we use the 'name' field from backend -->
+            <text class="name">{{ userInfo.name || '暂无姓名' }}</text>
+            <text class="role-badge">{{ getRoleText(userInfo.role) }}</text>
           </view>
-          <text class="dept">{{ userInfo.department }} {{ userInfo.className }}</text>
-          <view class="status-row">
-            <view class="status-dot"></view>
-            <text class="status-text">在线</text>
+          
+          <view class="detail-row">
+            <text class="detail-label">{{ getRoleText(userInfo.role).includes('学生') ? '学号：' : '工号：' }}</text>
+            <text class="detail-value">{{ userInfo.accountNumber || userInfo.userNo || '暂无' }}</text>
+          </view>
+          
+          <view class="detail-row" v-if="userInfo.role !== '管理员' && (userInfo.departmentName || userInfo.department)">
+            <text class="detail-label">学院：</text>
+            <text class="detail-value">{{ userInfo.departmentName || userInfo.department }}</text>
           </view>
         </view>
       </view>
@@ -88,14 +95,23 @@ const userInfo = ref({})
 
 const avatarText = computed(() => {
   const name = userInfo.value.name || ''
-  if (name.includes('辅导员') || name.includes('老师')) return '师'
-  if (name.includes('教授')) return '授'
-  if (name.includes('同学') || name.includes('学生')) return '学'
-  return name.charAt(0) || 'U'
+  if (!name) return 'U'
+  // If the name is exactly 2 characters, display both.
+  // If it's longer, display the last 2 characters (common in Chinese naming conventions for avatars)
+  return name.length <= 2 ? name : name.slice(-2)
 })
+
+const getRoleText = (role) => {
+  if (typeof role === 'string') return role
+  if (role === 1) return '学生'
+  if (role === 2) return '辅导员'
+  if (role === 3) return '老师'
+  return '未知角色'
+}
 
 onShow(() => {
   const info = uni.getStorageSync('userInfo')
+  console.log('--- [DEBUG] userInfo in my/index.vue ---', info)
   if (info) {
     userInfo.value = info
   }
@@ -229,36 +245,38 @@ const handleLogout = () => {
       .name-row {
         display: flex;
         align-items: center;
-        margin-bottom: 6px;
+        margin-bottom: 12px;
         
         .name {
           font-size: 22px;
           font-weight: 600;
+          margin-right: 10px;
+        }
+
+        .role-badge {
+          background-color: rgba(255, 255, 255, 0.2);
+          padding: 2px 8px;
+          border-radius: 12px;
+          font-size: 12px;
+          font-weight: 500;
         }
       }
       
-      .dept {
-        font-size: 14px;
+      .detail-row {
+        font-size: 13px;
         opacity: 0.9;
         margin-bottom: 6px;
-        display: block;
-      }
-      
-      .status-row {
         display: flex;
         align-items: center;
         
-        .status-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background-color: #34D399;
-          margin-right: 6px;
+        .detail-label {
+          opacity: 0.8;
+          white-space: nowrap;
         }
         
-        .status-text {
-          font-size: 13px;
-          opacity: 0.9;
+        .detail-value {
+          flex: 1;
+          word-break: break-all;
         }
       }
     }

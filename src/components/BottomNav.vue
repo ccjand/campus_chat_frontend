@@ -51,9 +51,9 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { computed, ref, onMounted, watch, onUnmounted } from 'vue'
 import request from '@/utils/request'
+import imSocket from '@/utils/imSocket'
 
 const props = defineProps({
   current: {
@@ -66,20 +66,41 @@ const props = defineProps({
   }
 })
 
-const badgeInfo = ref({
-  unreadMsgCount: 0,
-  contactDot: false,
-  workbenchDot: false,
-  mineDot: false
-})
+// Extract global state outside the component so it persists across tab switches
+// Since uni-app tears down components on page switches if not using tabbar
+const getGlobalBadgeInfo = () => {
+  const cached = uni.getStorageSync('globalBadgeInfo')
+  if (cached) {
+    try { return JSON.parse(cached) } catch(e) {}
+  }
+  return {
+    unreadMsgCount: 0,
+    contactDot: false,
+    workbenchDot: false,
+    mineDot: false
+  }
+}
+
+const badgeInfo = ref(getGlobalBadgeInfo())
+
+const saveGlobalBadgeInfo = (info) => {
+  uni.setStorageSync('globalBadgeInfo', JSON.stringify(info))
+}
+
+// Safely watch the props to update global cache without triggering Vue computed side-effect warnings
+watch(() => props.unreadCount, (newVal) => {
+  if (newVal !== -1) {
+    badgeInfo.value.unreadMsgCount = Number(newVal)
+    saveGlobalBadgeInfo(badgeInfo.value)
+  }
+}, { immediate: true })
 
 const badgeText = computed(() => {
-  // If parent (like index.vue) explicitly passes a valid unreadCount (>= 0), use it for real-time display
-  // Otherwise, fallback to the globally fetched badgeInfo
   let n = 0
   if (props.unreadCount !== -1) {
     n = Number(props.unreadCount)
   } else {
+    // If in other tabs, use the fetched badge info
     n = Number(badgeInfo.value.unreadMsgCount || 0)
   }
   
@@ -94,16 +115,61 @@ const loadBadgeInfo = async () => {
       url: '/capi/badge',
       method: 'GET'
     })
+    // Ensure we handle both potential response structures from the backend
     if (res) {
-      badgeInfo.value = res
+      // KEEP the local unreadMsgCount because the backend /capi/badge interface
+      // relies on a buggy SQL (countTotalUnread) that often returns 0 incorrectly.
+      // We rely exclusively on index.vue to calculate and pass the true unreadCount.
+      const currentUnread = badgeInfo.value.unreadMsgCount || 0
+      badgeInfo.value = {
+        ...badgeInfo.value,
+        ...res,
+        unreadMsgCount: currentUnread
+      }
+      saveGlobalBadgeInfo(badgeInfo.value)
     }
   } catch (e) {
     // console.warn('Load badge info error', e)
   }
 }
 
-onShow(() => {
+// Global WebSocket listener for background tabs
+let removeWsListener = null
+const processedMsgIds = new Set()
+
+const handleWsPayload = (payload) => {
+  // If we are on the message tab, index.vue handles this accurately.
+  // We only intercept messages here if we are on OTHER tabs.
+  if (props.current === 'message') return
+
+  if (!payload || !payload.id) return
+  
+  // Deduplicate
+  if (processedMsgIds.has(payload.id)) return
+  processedMsgIds.add(payload.id)
+  if (processedMsgIds.size > 2000) {
+    const iterator = processedMsgIds.values()
+    for (let i = 0; i < 500; i++) processedMsgIds.delete(iterator.next().value)
+  }
+
+  const currentUserId = uni.getStorageSync('uid') || uni.getStorageSync('userInfo')?.uid || uni.getStorageSync('userInfo')?.id
+  if (String(payload.fromUid) === String(currentUserId)) return
+
+  // Increment local unread count dynamically!
+  badgeInfo.value.unreadMsgCount = (Number(badgeInfo.value.unreadMsgCount) || 0) + 1
+  saveGlobalBadgeInfo(badgeInfo.value)
+}
+
+// Load badge info automatically when the bottom nav component is rendered
+onMounted(() => {
   loadBadgeInfo()
+  removeWsListener = imSocket.onMessage(handleWsPayload)
+})
+
+onUnmounted(() => {
+  if (typeof removeWsListener === 'function') {
+    removeWsListener()
+  }
 })
 
 defineExpose({ loadBadgeInfo })

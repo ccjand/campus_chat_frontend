@@ -111,6 +111,7 @@ const roomId = ref(null)
 const receiverId = ref(null)
 let msgSeq = 0
 let removeWsListener = null
+let removeWsStatusListener = null
 const messageIdSet = new Set()
 const replyDraft = ref(null)
 const showScrollDown = ref(false)
@@ -474,7 +475,11 @@ const reportRead = async () => {
       method: 'POST',
       data: { roomId: Number(rid) }
     })
-  } catch (e) {}
+    // Immediately clear local badge counter globally by requesting badge update
+    // or by letting the unread count in index.vue update on next pull
+  } catch (e) {
+    console.error('Failed to report read', e)
+  }
 }
 
 const scheduleReportRead = (delayMs = 200) => {
@@ -547,11 +552,16 @@ const handleWsPayload = (payload) => {
   }
 }
 
-const loadInitialMessages = async () => {
+const loadInitialMessages = async (isSilentRefresh = false) => {
   const rid = roomId.value
   if (!rid) return
-  loading.value = true
-  hasMore.value = true
+  
+  // Don't show full page loader if this is just a background refresh due to WS reconnect
+  if (!isSilentRefresh) {
+    loading.value = true
+    hasMore.value = true
+  }
+  
   try {
     const page = await request({
       url: '/capi/message/history',
@@ -563,7 +573,7 @@ const loadInitialMessages = async () => {
       }
     })
     const list = Array.isArray(page) ? page : []
-    if (list.length < 15) {
+    if (!isSilentRefresh && list.length < 15) {
       hasMore.value = false
     }
     
@@ -573,15 +583,42 @@ const loadInitialMessages = async () => {
     
     // Prepare the new array first to avoid multiple reactive updates
     const newMessages = []
-    messageIdSet.clear()
+    
+    if (!isSilentRefresh) {
+      messageIdSet.clear()
+    }
+    
+    // To support merging during silent refresh instead of full wipe
+    const existingIds = new Set(messages.value.map(m => String(m.id)))
     
     list.forEach((item) => {
       const ui = mapChatMessageRespToUi(item)
       if (!ui) return
       if (hiddenMessageIdSet.has(String(ui.id))) return
-      messageIdSet.add(String(ui.id))
-      newMessages.push(ui)
+      
+      if (isSilentRefresh) {
+        // Only add if it's genuinely a new message we missed while disconnected
+        if (!existingIds.has(String(ui.id)) && !messageIdSet.has(String(ui.id))) {
+          messageIdSet.add(String(ui.id))
+          newMessages.push(ui)
+        }
+      } else {
+        if (messageIdSet.has(String(ui.id))) return
+        messageIdSet.add(String(ui.id))
+        newMessages.push(ui)
+      }
     })
+    
+    if (isSilentRefresh) {
+      if (newMessages.length > 0) {
+        // Append new messages missed during offline
+        const combined = [...messages.value, ...newMessages]
+        combined.sort((a, b) => (a.tsMs || 0) - (b.tsMs || 0))
+        messages.value = combined
+        console.log(`WS Reconnect recovered ${newMessages.length} missing messages`)
+      }
+      return
+    }
     
     // Sort BEFORE assigning to the reactive variable
     newMessages.sort((a, b) => (a.tsMs || 0) - (b.tsMs || 0))
@@ -712,6 +749,20 @@ onLoad(async (options) => {
 
   // 1) 先注册监听
   removeWsListener = imSocket.onMessage(handleWsPayload)
+  
+  // Register status listener for reconnection events to fetch missing history
+  removeWsStatusListener = imSocket.onStatusChange((status) => {
+    if (status === 'connected') {
+      console.log('WS reconnected in chat room, refreshing messages...')
+      // Do a silent refresh to fetch any messages missed during the offline window
+      // without jumping the scrollbar
+      if (roomId.value) {
+        // We only reload if we have a room, and we do it carefully so user doesn't lose position
+        const currentMsgCount = messages.value.length
+        loadInitialMessages(true).catch(() => {})
+      }
+    }
+  })
 
   // 2) 兜底连接
   try {
@@ -753,6 +804,8 @@ onUnload(() => {
   } catch (e) {}
   if (typeof removeWsListener === 'function') removeWsListener()
   removeWsListener = null
+  if (typeof removeWsStatusListener === 'function') removeWsStatusListener()
+  removeWsStatusListener = null
   if (typeof removeKeyboardListener === 'function') removeKeyboardListener()
   removeKeyboardListener = null
   if (typeof removeVisualViewportListener === 'function') removeVisualViewportListener()

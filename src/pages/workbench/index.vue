@@ -47,24 +47,7 @@
           </view>
         </view>
 
-        <view class="section-title">快捷入口</view>
-        <view class="shortcut-list">
-          <view class="shortcut-item" @click="navigateTo('/pages/workbench/checkin/index')">
-            <view class="item-info">
-              <text class="item-title">我的签到记录</text>
-              <text class="item-desc">查看历史签到情况</text>
-            </view>
-            <u-icon name="arrow-right" color="#ccc" size="14"></u-icon>
-          </view>
-          
-          <view class="shortcut-item" @click="navigateTo('/pages/workbench/group/index')">
-            <view class="item-info">
-              <text class="item-title">班级群组</text>
-              <text class="item-desc">管理我的班级群</text>
-            </view>
-            <u-icon name="arrow-right" color="#ccc" size="14"></u-icon>
-          </view>
-        </view>
+
       </view>
     </scroll-view>
     

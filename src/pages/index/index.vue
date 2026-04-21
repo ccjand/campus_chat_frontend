@@ -116,71 +116,31 @@ const loadRecentContacts = async () => {
       method: 'GET'
     })
     
-    // Fetch friend list to get names and avatars
-    let friendMap = {}
-    try {
-      const friends = await request({ url: '/capi/friend/list', method: 'GET' })
-      if (Array.isArray(friends)) {
-        friends.forEach(f => {
-          if (f.roomId) {
-            friendMap[f.roomId] = {
-              name: f.fullName || f.name || f.accountNumber || '',
-              avatar: f.avatar || ''
-            }
-          }
-        })
-      }
-    } catch (e) {}
-
-    // Map recent contacts
+    // The backend now returns a fully populated ContactVO list!
+    // No more N+1 requests, no more manual mapping of friends and messages.
     let mapped = (Array.isArray(list) ? list : []).map(item => {
       const roomId = item.roomId ?? item.id
       if (roomId == null) return null
+      
       const messageType = item.type === 2 ? 'group' : 'single'
       
-      const fInfo = friendMap[roomId] || {}
       return {
         id: roomId,
         roomId,
         messageType,
-        name: fInfo.name || item.name || (messageType === 'group' ? '群聊 ' + roomId : '会话 ' + roomId),
-        avatar: fInfo.avatar || item.avatar || '',
+        name: item.name || (messageType === 'group' ? '群聊 ' + roomId : '会话 ' + roomId),
+        avatar: item.avatar || '',
         summary: item.summary || '',
         unreadCount: Number(item.unreadCount || 0),
-        timestamp: formatSessionTime(item.activeTime || item.timestamp)
+        timestamp: formatSessionTime(item.timestamp || item.activeTime),
+        top: !!item.top,
+        mute: !!item.mute
       }
     }).filter(Boolean)
     
-    // Fetch latest message for each room to populate summary
-    try {
-      const promises = mapped.map(async (m) => {
-        if (m.summary) return m // Already has summary
-        try {
-          const history = await request({
-            url: '/capi/message/history',
-            method: 'GET',
-            data: { roomId: Number(m.roomId), size: 1, cursor: '' }
-          })
-          if (Array.isArray(history) && history.length > 0) {
-            const msg = history[0]
-            let content = msg.content || ''
-            if (msg.type === 2) content = '[图片]'
-            if (msg.type === 3) content = '[文件]'
-            m.summary = content
-            
-            // If timestamp is not set by contact, use message time
-            if (!m.timestamp && (msg.createTime || msg.sendTime)) {
-              m.timestamp = formatSessionTime(msg.createTime || msg.sendTime)
-            }
-          }
-        } catch (e) {}
-        return m
-      })
-      mapped = await Promise.all(promises)
-    } catch (e) {}
-    
     messages.value = mapped
   } catch (e) {
+    console.error('Failed to load recent contacts:', e)
     messages.value = []
   }
 }
@@ -297,11 +257,6 @@ onShow(() => {
   if (typeof removeWsListener !== 'function') {
     removeWsListener = imSocket.onMessage(handleWsPayload)
   }
-  nextTick(() => {
-    if (bottomNavRef.value?.loadBadgeInfo) {
-      bottomNavRef.value.loadBadgeInfo()
-    }
-  })
 })
 
 onHide(() => {

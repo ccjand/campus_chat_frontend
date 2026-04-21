@@ -10,16 +10,16 @@
         <text class="value">{{ userInfo.name }}</text>
       </view>
       <view class="list-item">
-        <text class="label">工号</text>
-        <text class="value">{{ userInfo.id }}</text>
+        <text class="label">{{ getRoleText(userInfo.role).includes('学生') ? '学号' : '工号' }}</text>
+        <text class="value">{{ userInfo.accountNumber || userInfo.userNo || userInfo.id || '暂无' }}</text>
       </view>
-      <view class="list-item">
+      <view class="list-item" v-if="getRoleText(userInfo.role) !== '管理员'">
         <text class="label">学院</text>
-        <text class="value">{{ userInfo.department }}</text>
+        <text class="value">{{ userInfo.departmentName || userInfo.department || '暂无' }}</text>
       </view>
       <view class="list-item">
         <text class="label">职责</text>
-        <text class="value">{{ userInfo.role }}</text>
+        <text class="value">{{ getRoleText(userInfo.role) }}</text>
       </view>
     </view>
   </view>
@@ -38,6 +38,14 @@ const userInfo = ref({
   department: '',
   id: ''
 })
+
+const getRoleText = (role) => {
+  if (typeof role === 'string') return role
+  if (role === 1) return '学生'
+  if (role === 2) return '辅导员'
+  if (role === 3) return '老师'
+  return '未知角色'
+}
 
 onShow(() => {
   loadUserInfoFromCache()
