@@ -12,12 +12,12 @@ try {
   if (isH5 && window.location) {
     const hostname = window.location.hostname || ''
     const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1'
-    const host = isLocalHost ? hostname : ip
+    const host = ip // 强制使用上方定义的 ip (172.20.10.3)，不回退到 localhost
     const pageProtocol = window.location.protocol || 'http:'
     const apiProtocol = pageProtocol === 'https:' ? 'https' : 'http'
     const wsProtocol = pageProtocol === 'https:' ? 'wss' : 'ws'
     apiBaseUrl = `${apiProtocol}://${host}:${apiPort}`
-    wsBaseUrl = `${wsProtocol}://${host}:${wsPort}/capi/ws/chat`;
+    wsBaseUrl = `${wsProtocol}://${host}:${wsPort}/capi/ws/chat`
   }
 } catch (e) {}
 

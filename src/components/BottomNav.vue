@@ -59,6 +59,10 @@ const props = defineProps({
   current: {
     type: String,
     default: 'message'
+  },
+  unreadCount: {
+    type: Number,
+    default: -1 // -1 means it's not provided by parent, use backend badgeInfo
   }
 })
 
@@ -70,7 +74,15 @@ const badgeInfo = ref({
 })
 
 const badgeText = computed(() => {
-  const n = Number(badgeInfo.value.unreadMsgCount || 0)
+  // If parent (like index.vue) explicitly passes a valid unreadCount (>= 0), use it for real-time display
+  // Otherwise, fallback to the globally fetched badgeInfo
+  let n = 0
+  if (props.unreadCount !== -1) {
+    n = Number(props.unreadCount)
+  } else {
+    n = Number(badgeInfo.value.unreadMsgCount || 0)
+  }
+  
   if (!Number.isFinite(n) || n <= 0) return ''
   if (n > 99) return '99+'
   return String(Math.floor(n))

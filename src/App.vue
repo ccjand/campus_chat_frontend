@@ -3,42 +3,41 @@ import imSocket from '@/utils/imSocket'
 import CONFIG from '@/config.js'
 
 export default {
-  onLaunch: function () {
+  onLaunch() {
     console.log('App Launch')
-    this.checkAndConnectWs()
+    this.bootWs()
+    uni.onNetworkStatusChange((res) => {
+      if (res.isConnected) this.bootWs()
+    })
   },
-  onShow: function () {
+  onShow() {
     console.log('App Show')
-    this.checkAndConnectWs()
+    this.bootWs()
   },
-  onHide: function () {
+  onHide() {
     console.log('App Hide')
   },
   methods: {
-    checkAndConnectWs() {
+    bootWs() {
       const token = uni.getStorageSync('token')
-      if (token && !imSocket.isConnected()) {
-        imSocket.connect({ token, terminalType: CONFIG.TERMINAL_TYPE }).catch((e) => {
-          console.error('WS Auto-connect failed:', e)
-        })
-      }
+      if (!token) return
+      if (imSocket.isConnected()) return
+      imSocket.connect({ token, terminalType: CONFIG.TERMINAL_TYPE }).catch((e) => {
+        console.warn('WS 自动连接失败：', e?.message || e)
+      })
     }
   }
 }
 </script>
 
 <style lang="scss">
-/* 强制覆盖 uview-plus 字体加载路径，使用 LocalUViewFont 避免与组件内部冲突 */
 @font-face {
   font-family: 'uicon-iconfont';
   src: url('/static/uview-plus.woff?v=1') format('woff'),
        url('/static/uview-plus.ttf?v=1') format('truetype');
 }
-
-/* 强制重写 u-icon 字体引用 */
 .u-icon__icon, .u-iconfont {
   font-family: 'uicon-iconfont' !important;
 }
-
 @import 'uview-plus/index.scss';
 </style>

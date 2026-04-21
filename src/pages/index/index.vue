@@ -51,6 +51,7 @@ let removeWsListener = null
 let refreshRecentTimer = null
 
 const ACTIVE_ROOM_KEY = 'activeChatRoomId'
+const processedMsgIds = new Set()
 
 const totalUnread = computed(() => {
   const list = Array.isArray(messages.value) ? messages.value : []
@@ -229,6 +230,20 @@ const handleWsPayload = (payload) => {
   
   const rid = dataObj?.roomId
   if (rid == null) return
+  
+  const msgId = dataObj?.id
+  if (msgId != null) {
+    const idText = String(msgId)
+    if (processedMsgIds.has(idText)) {
+      return // Deduplicate: already processed this message for unread count
+    }
+    processedMsgIds.add(idText)
+    // Prevent memory leak
+    if (processedMsgIds.size > 2000) {
+      const first = processedMsgIds.values().next().value
+      if (first) processedMsgIds.delete(first)
+    }
+  }
 
   const myUid = uni.getStorageSync('uid') ?? uni.getStorageSync('userInfo')?.uid
   const isSelf = myUid != null && dataObj?.fromUid != null && String(myUid) === String(dataObj.fromUid)

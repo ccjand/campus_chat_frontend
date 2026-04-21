@@ -4,163 +4,148 @@ const WS_URL = CONFIG.WS_BASE_URL
 
 let socketTask = null
 let connectingPromise = null
-const messageListeners = new Set()
-const activeSubscriptions = new Map()
 let connected = false
 let currentToken = null
+let currentTerminalType = null
+let manualDisconnect = false
 
-const safeJsonParse = (text) => {
-  try {
-    return JSON.parse(text)
-  } catch (e) {
-    return null
-  }
-}
+let reconnectTimer = null
+let reconnectAttempts = 0
+const RECONNECT_BASE_MS = 1000
+const RECONNECT_MAX_MS = 30000
 
-const notifyMessageListeners = (payload) => {
-  messageListeners.forEach((listener) => {
-    try {
-      listener(payload)
-    } catch (e) {}
-  })
-}
+const messageListeners = new Set()
+const statusListeners = new Set()
+const activeSubscriptions = new Map()
 
-// Simple STOMP Frame Encoder
+const safeJsonParse = (t) => { try { return JSON.parse(t) } catch (e) { return null } }
+
 const encodeStompFrame = (command, headers, body) => {
   let frame = command + '\n'
-  if (headers) {
-    for (const key in headers) {
-      frame += key + ':' + headers[key] + '\n'
-    }
-  }
+  if (headers) for (const k in headers) frame += k + ':' + headers[k] + '\n'
   frame += '\n'
-  if (body) {
-    frame += typeof body === 'string' ? body : JSON.stringify(body)
-  }
+  if (body) frame += typeof body === 'string' ? body : JSON.stringify(body)
   frame += '\x00'
   return frame
 }
 
-// Simple STOMP Frame Decoder
 const parseStompFrame = (data) => {
-  if (data === '\n' || data === '\r\n') return null // Heartbeat
-  let normalizedData = data.replace(/\r\n/g, '\n')
-  // Remove leading newlines that might be attached from previous heartbeats
-  while (normalizedData.startsWith('\n')) {
-    normalizedData = normalizedData.slice(1)
-  }
-  if (!normalizedData) return null
-
-  const parts = normalizedData.split('\n\n')
+  if (data === '\n' || data === '\r\n') return null
+  let s = data.replace(/\r\n/g, '\n')
+  while (s.startsWith('\n')) s = s.slice(1)
+  if (!s) return null
+  const parts = s.split('\n\n')
   if (parts.length < 2) return null
-  const headersPart = parts[0]
-  let bodyPart = parts.slice(1).join('\n\n')
-  if (bodyPart.endsWith('\x00')) {
-    bodyPart = bodyPart.slice(0, -1)
-  }
-  
-  const headerLines = headersPart.split('\n')
+  const headerLines = parts[0].split('\n')
+  let body = parts.slice(1).join('\n\n')
+  if (body.endsWith('\x00')) body = body.slice(0, -1)
   const command = headerLines[0]
   const headers = {}
   for (let i = 1; i < headerLines.length; i++) {
     const line = headerLines[i]
-    const colonIdx = line.indexOf(':')
-    if (colonIdx > 0) {
-      headers[line.slice(0, colonIdx)] = line.slice(colonIdx + 1)
-    }
+    const idx = line.indexOf(':')
+    if (idx > 0) headers[line.slice(0, idx)] = line.slice(idx + 1)
   }
-  
-  return { command, headers, body: bodyPart ? safeJsonParse(bodyPart) : null }
+  return { command, headers, body: body ? safeJsonParse(body) : null }
 }
+
+const notifyMessageListeners = (p) => messageListeners.forEach((fn) => { try { fn(p) } catch (e) { console.error(e) } })
+const notifyStatusListeners = (s) => statusListeners.forEach((fn) => { try { fn(s) } catch (e) {} })
+
+const scheduleReconnect = () => {
+  if (manualDisconnect || !currentToken || reconnectTimer) return
+  const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * Math.pow(2, reconnectAttempts))
+  reconnectAttempts += 1
+  console.log(`WS：${delay}ms 后第 ${reconnectAttempts} 次重连`)
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    connect({ token: currentToken, terminalType: currentTerminalType }).catch(() => scheduleReconnect())
+  }, delay)
+}
+const clearReconnect = () => { if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null } reconnectAttempts = 0 }
 
 const connect = ({ token, terminalType }) => {
   if (!token) return Promise.reject(new Error('Missing token'))
+  if (connected && socketTask) return Promise.resolve(true)
   if (connectingPromise) return connectingPromise
 
-  disconnect()
+  manualDisconnect = false
   currentToken = token
+  currentTerminalType = terminalType
 
   connectingPromise = new Promise((resolve, reject) => {
-    console.log(`WS：准备连接 STOMP（terminalType=${String(terminalType)}）`)
+    notifyStatusListeners('connecting')
+    // 握手阶段同时把 token 放到 URL query，后端 HandshakeInterceptor 兜底能拿到
+    const url = WS_URL + (WS_URL.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token)
+    console.log('WS：准备连接', url)
 
-    socketTask = uni.connectSocket({
-      url: WS_URL,
-      fail: (err) => {
-        console.log('WS：连接失败', err)
-        socketTask = null
-        connectingPromise = null
-        reject(err)
-      }
+    // Using H5 standard WebSocket or standard uni.connectSocket based on environment to ensure ws works
+    socketTask = uni.connectSocket({ 
+      url, 
+      complete: () => {} 
     })
-
     if (!socketTask) {
-      console.log('WS：连接失败（未获取到 socketTask）')
       connectingPromise = null
       reject(new Error('connectSocket failed'))
       return
     }
 
-    socketTask.onOpen(() => {
-      console.log('WS：底层连接成功，发送 STOMP CONNECT')
-      // Send STOMP CONNECT frame
-      const connectFrame = encodeStompFrame('CONNECT', {
-        'Authorization': `Bearer ${token}`,
-        'accept-version': '1.1,1.0',
-        'heart-beat': '10000,10000'
+    const handleFail = (err) => {
+      console.warn('WS：底层断开/失败', err)
+      const wasConnected = connected
+      connected = false
+      socketTask = null
+      connectingPromise = null
+      notifyStatusListeners('disconnected')
+      if (!wasConnected) reject(new Error(err?.errMsg || 'WS closed'))
+      scheduleReconnect()
+    }
+
+    // Adapt to standard uni.connectSocket events
+    uni.onSocketOpen((res) => {
+      console.log('WS：底层打开，发送 STOMP CONNECT', res)
+      if (!socketTask) return
+      uni.sendSocketMessage({
+        data: encodeStompFrame('CONNECT', {
+          'Authorization': `Bearer ${token}`,
+          'accept-version': '1.2,1.1,1.0',
+          'heart-beat': '10000,10000'
+        })
       })
-      socketTask.send({ data: connectFrame })
     })
 
-    socketTask.onError((err) => {
-      console.log('WS：连接异常', err)
-      socketTask = null
-      connected = false
-      connectingPromise = null
-      reject(err)
-    })
+    uni.onSocketError((err) => handleFail(err))
+    uni.onSocketClose((err) => handleFail(err))
 
-    socketTask.onClose(() => {
-      console.log('WS：连接已关闭')
-      socketTask = null
-      connected = false
-      connectingPromise = null
-    })
-
-    socketTask.onMessage((evt) => {
+    uni.onSocketMessage((evt) => {
       const data = evt?.data
       if (typeof data !== 'string') return
-      
-      // A single WebSocket message might contain multiple STOMP frames separated by \x00
-      const framesData = data.split('\x00')
-      for (let i = 0; i < framesData.length; i++) {
-        let frameData = framesData[i]
-        // The last element might be empty if the string ends with \x00
-        if (!frameData && i === framesData.length - 1) continue
-        
-        const frame = parseStompFrame(frameData)
+      const frames = data.split('\x00')
+      for (let i = 0; i < frames.length; i++) {
+        const raw = frames[i]
+        if (!raw && i === frames.length - 1) continue
+        const frame = parseStompFrame(raw)
         if (!frame) continue
-        
+
         if (frame.command === 'CONNECTED') {
-          console.log('STOMP 连接成功')
+          console.log('STOMP 已连接')
           connected = true
+          clearReconnect()
+          notifyStatusListeners('connected')
           
-          // Subscribe to user queue
-          const subFrame = encodeStompFrame('SUBSCRIBE', {
-            id: 'sub-0',
-            destination: '/user/queue/messages'
+          // Use uni.sendSocketMessage to subscribe properly after connection
+          uni.sendSocketMessage({ data: encodeStompFrame('SUBSCRIBE', { id: 'sub-user-queue', destination: '/user/queue/messages' }) })
+          
+          activeSubscriptions.forEach((destination, id) => {
+            // Prevent double subscription for the user queue if it's already in activeSubscriptions
+            if (id === 'sub-user-queue') return
+            uni.sendSocketMessage({ data: encodeStompFrame('SUBSCRIBE', { id, destination }) })
           })
-          socketTask.send({ data: subFrame })
-          
-          // Restore active subscriptions
-          for (const [id, destination] of activeSubscriptions.entries()) {
-            const restoreFrame = encodeStompFrame('SUBSCRIBE', { id, destination })
-            socketTask.send({ data: restoreFrame })
-          }
           
           connectingPromise = null
           resolve(true)
         } else if (frame.command === 'MESSAGE') {
-          console.log('STOMP MESSAGE received:', frame.body)
+          console.log('STOMP MESSAGE', frame.headers?.destination, frame.body)
           notifyMessageListeners(frame.body)
         } else if (frame.command === 'ERROR') {
           console.error('STOMP ERROR', frame.headers, frame.body)
@@ -176,86 +161,73 @@ const connect = ({ token, terminalType }) => {
   return connectingPromise
 }
 
+const awaitConnected = async (timeoutMs = 8000) => {
+  if (connected) return true
+  if (!currentToken) {
+    const token = uni.getStorageSync('token')
+    if (!token) throw new Error('未登录')
+    await connect({ token, terminalType: CONFIG.TERMINAL_TYPE })
+    return connected
+  }
+  if (connectingPromise) {
+    await Promise.race([
+      connectingPromise,
+      new Promise((_, rej) => setTimeout(() => rej(new Error('connect timeout')), timeoutMs))
+    ])
+    return connected
+  }
+  await connect({ token: currentToken, terminalType: currentTerminalType })
+  return connected
+}
+
 const disconnect = () => {
+  manualDisconnect = true
+  clearReconnect()
   try {
-    const swallowNotConnected = (err) => {
-      const msg = err?.errMsg ?? err?.message ?? String(err ?? '')
-      if (String(msg).includes('WebSocket is not connected')) return
-      console.log('WS：断开连接失败', err)
-    }
-
     if (socketTask && connected) {
-      console.log('WS：主动断开连接')
-      const disconnectFrame = encodeStompFrame('DISCONNECT', { 'receipt': 'close-1' })
-      socketTask.send({ data: disconnectFrame })
-      
-      const task = socketTask
-      socketTask = null
-      connected = false
-      setTimeout(() => {
-        task.close({
-          fail: swallowNotConnected,
-          complete: () => {}
-        })
-      }, 100)
-    } else if (socketTask) {
-      const task = socketTask
-      socketTask = null
-      connected = false
-      task.close({
-        fail: swallowNotConnected,
-        complete: () => {}
-      })
+      uni.sendSocketMessage({ data: encodeStompFrame('DISCONNECT', { receipt: 'close-1' }) })
     }
-  } catch (e) {
-    console.log('WS：断开连接异常', e)
-    socketTask = null
-    connected = false
-  } finally {
-    connectingPromise = null
-  }
+    if (socketTask) {
+      setTimeout(() => { try { uni.closeSocket({}) } catch (e) {} }, 50)
+    }
+  } catch (e) {}
+  socketTask = null
+  connected = false
+  connectingPromise = null
+  notifyStatusListeners('disconnected')
 }
 
-const send = (destination, data) => {
+const send = async (destination, data) => {
+  if (!connected) await awaitConnected()
   if (!socketTask || !connected) throw new Error('STOMP not connected')
-  const frame = encodeStompFrame('SEND', { destination }, data)
-  return socketTask.send({ data: frame })
+  return new Promise((resolve, reject) => {
+    uni.sendSocketMessage({
+      data: encodeStompFrame('SEND', { destination, 'content-type': 'application/json' }, data),
+      success: resolve,
+      fail: reject
+    })
+  })
 }
 
-const isConnected = () => connected
-
-const onMessage = (listener) => {
-  if (typeof listener !== 'function') return () => {}
-  messageListeners.add(listener)
-  return () => {
-    messageListeners.delete(listener)
-  }
-}
-
-const subscribe = (destination, id) => {
-  console.log('STOMP SUBSCRIBE:', destination, id)
+const subscribe = async (destination, id) => {
   activeSubscriptions.set(id, destination)
-  if (!socketTask || !connected) {
-    console.log('STOMP SUBSCRIBE deferred, not connected yet')
-    return
-  }
-  const frame = encodeStompFrame('SUBSCRIBE', { id, destination })
-  socketTask.send({ data: frame })
+  try { if (!connected) await awaitConnected() } catch (e) { return }
+  uni.sendSocketMessage({ data: encodeStompFrame('SUBSCRIBE', { id, destination }) })
+  console.log('STOMP SUBSCRIBE →', destination)
 }
 
 const unsubscribe = (id) => {
   activeSubscriptions.delete(id)
   if (!socketTask || !connected) return
-  const frame = encodeStompFrame('UNSUBSCRIBE', { id })
-  socketTask.send({ data: frame })
+  uni.sendSocketMessage({ data: encodeStompFrame('UNSUBSCRIBE', { id }) })
+  console.log('STOMP UNSUBSCRIBE →', id)
 }
 
+const onMessage = (fn) => { if (typeof fn !== 'function') return () => {}; messageListeners.add(fn); return () => messageListeners.delete(fn) }
+const onStatusChange = (fn) => { if (typeof fn !== 'function') return () => {}; statusListeners.add(fn); return () => statusListeners.delete(fn) }
+const isConnected = () => connected
+
 export default {
-  connect,
-  disconnect,
-  send,
-  isConnected,
-  onMessage,
-  subscribe,
-  unsubscribe
+  connect, disconnect, send, isConnected, onMessage, onStatusChange,
+  subscribe, unsubscribe, awaitConnected
 }

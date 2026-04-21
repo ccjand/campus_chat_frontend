@@ -19,3 +19,15 @@ dist
 *.njsproj
 *.sln
 *.sw?
+
+.hbuilderx/
+
+.npm-cache/
+
+.trae/
+
+.vercel/
+
+dist/
+
+node_modules/
