@@ -109,6 +109,7 @@ const normalizeRoleText = (role) => {
   if (!Number.isNaN(num)) {
     if (num === 0) return '管理员'
     if (num === 2) return '教师'
+    if (num === 3) return '辅导员'
     return '学生'
   }
   return role == null ? '' : String(role)

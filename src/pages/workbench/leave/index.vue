@@ -284,8 +284,8 @@ const removeFile = (index) => {
 
 const isTeacher = computed(() => {
   const role = userInfo.value?.role
-  if (typeof role === 'number') return role === 2
-  return String(role || '').includes('教师')
+  if (typeof role === 'number') return role === 2 || role === 3
+  return String(role || '').includes('教师') || String(role || '').includes('辅导员')
 })
 
 const userCollege = computed(() => {

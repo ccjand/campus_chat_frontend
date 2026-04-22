@@ -295,11 +295,13 @@ const resolveRoleType = (info) => {
   if (!Number.isNaN(num)) {
     if (num === 0) return 'admin'
     if (num === 2) return 'teacher'
+    if (num === 3) return 'counselor'
     return 'student'
   }
   const text = role == null ? '' : String(role)
   if (text === '管理员' || text.includes('管理员')) return 'admin'
   if (text === '教师' || text.includes('教师') || text === 'teacher') return 'teacher'
+  if (text === '辅导员' || text.includes('辅导员') || text === 'counselor') return 'counselor'
   if (text === '学生' || text.includes('学生') || text === 'student') return 'student'
   return ''
 }

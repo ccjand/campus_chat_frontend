@@ -42,8 +42,8 @@ const userInfo = ref({
 const getRoleText = (role) => {
   if (typeof role === 'string') return role
   if (role === 1) return '学生'
-  if (role === 2) return '辅导员'
-  if (role === 3) return '老师'
+  if (role === 2) return '教师'
+  if (role === 3) return '辅导员'
   return '未知角色'
 }
 

@@ -101,11 +101,10 @@ const connect = ({ token, terminalType }) => {
       scheduleReconnect()
     }
 
-    // Adapt to standard uni.connectSocket events
-    uni.onSocketOpen((res) => {
+    socketTask.onOpen((res) => {
       console.log('WS：底层打开，发送 STOMP CONNECT', res)
       if (!socketTask) return
-      uni.sendSocketMessage({
+      socketTask.send({
         data: encodeStompFrame('CONNECT', {
           'Authorization': `Bearer ${token}`,
           'accept-version': '1.2,1.1,1.0',
@@ -114,10 +113,10 @@ const connect = ({ token, terminalType }) => {
       })
     })
 
-    uni.onSocketError((err) => handleFail(err))
-    uni.onSocketClose((err) => handleFail(err))
+    socketTask.onError((err) => handleFail(err))
+    socketTask.onClose((err) => handleFail(err))
 
-    uni.onSocketMessage((evt) => {
+    socketTask.onMessage((evt) => {
       const data = evt?.data
       if (typeof data !== 'string') return
       const frames = data.split('\x00')
@@ -133,13 +132,11 @@ const connect = ({ token, terminalType }) => {
           clearReconnect()
           notifyStatusListeners('connected')
           
-          // Use uni.sendSocketMessage to subscribe properly after connection
-          uni.sendSocketMessage({ data: encodeStompFrame('SUBSCRIBE', { id: 'sub-user-queue', destination: '/user/queue/messages' }) })
+          socketTask.send({ data: encodeStompFrame('SUBSCRIBE', { id: 'sub-user-queue', destination: '/user/queue/messages' }) })
           
           activeSubscriptions.forEach((destination, id) => {
-            // Prevent double subscription for the user queue if it's already in activeSubscriptions
             if (id === 'sub-user-queue') return
-            uni.sendSocketMessage({ data: encodeStompFrame('SUBSCRIBE', { id, destination }) })
+            socketTask.send({ data: encodeStompFrame('SUBSCRIBE', { id, destination }) })
           })
           
           connectingPromise = null
@@ -185,10 +182,10 @@ const disconnect = () => {
   clearReconnect()
   try {
     if (socketTask && connected) {
-      uni.sendSocketMessage({ data: encodeStompFrame('DISCONNECT', { receipt: 'close-1' }) })
+      socketTask.send({ data: encodeStompFrame('DISCONNECT', { receipt: 'close-1' }) })
     }
     if (socketTask) {
-      setTimeout(() => { try { uni.closeSocket({}) } catch (e) {} }, 50)
+      setTimeout(() => { try { socketTask.close({}) } catch (e) {} }, 50)
     }
   } catch (e) {}
   socketTask = null
@@ -201,7 +198,7 @@ const send = async (destination, data) => {
   if (!connected) await awaitConnected()
   if (!socketTask || !connected) throw new Error('STOMP not connected')
   return new Promise((resolve, reject) => {
-    uni.sendSocketMessage({
+    socketTask.send({
       data: encodeStompFrame('SEND', { destination, 'content-type': 'application/json' }, data),
       success: resolve,
       fail: reject
@@ -212,14 +209,14 @@ const send = async (destination, data) => {
 const subscribe = async (destination, id) => {
   activeSubscriptions.set(id, destination)
   try { if (!connected) await awaitConnected() } catch (e) { return }
-  uni.sendSocketMessage({ data: encodeStompFrame('SUBSCRIBE', { id, destination }) })
+  socketTask.send({ data: encodeStompFrame('SUBSCRIBE', { id, destination }) })
   console.log('STOMP SUBSCRIBE →', destination)
 }
 
 const unsubscribe = (id) => {
   activeSubscriptions.delete(id)
   if (!socketTask || !connected) return
-  uni.sendSocketMessage({ data: encodeStompFrame('UNSUBSCRIBE', { id }) })
+  socketTask.send({ data: encodeStompFrame('UNSUBSCRIBE', { id }) })
   console.log('STOMP UNSUBSCRIBE →', id)
 }
 

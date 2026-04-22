@@ -78,6 +78,7 @@ const userHonor = computed(() => {
   if (!Number.isNaN(num)) {
     if (num === 0) return '管理员'
     if (num === 2) return '教师'
+    if (num === 3) return '辅导员'
     return '学生'
   }
   return role == null ? '' : String(role)
@@ -89,11 +90,13 @@ const userHonorType = computed(() => {
   if (!Number.isNaN(num)) {
     if (num === 0) return 'admin'
     if (num === 2) return 'teacher'
+    if (num === 3) return 'counselor'
     return 'student'
   }
   const text = role == null ? '' : String(role)
   if (text === '管理员') return 'admin'
   if (text === '教师') return 'teacher'
+  if (text === '辅导员') return 'counselor'
   if (text === '学生') return 'student'
   return ''
 })

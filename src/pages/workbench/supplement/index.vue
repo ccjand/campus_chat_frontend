@@ -6,9 +6,9 @@
       <view class="form-card">
         <!-- Class Selection -->
         <view class="form-row" @click="showClassSelect = true">
-          <text class="label">课程班级</text>
+          <text class="label">补签任务</text>
           <view class="value-container">
-            <text class="value" :class="{ placeholder: !selectedClass }">{{ selectedClass || '请选择' }}</text>
+            <text class="value" :class="{ placeholder: !selectedClass }">{{ selectedClass || '请选择未签到任务' }}</text>
             <u-icon name="arrow-right" size="16" color="#999"></u-icon>
           </view>
         </view>
@@ -60,16 +60,58 @@
 
 <script setup>
 import { ref } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import TopNav from '@/components/TopNav.vue'
+import request from '@/utils/request'
 
 const selectedClass = ref('')
+const selectedSessionId = ref('')
 const reason = ref('')
 const showClassSelect = ref(false)
 
-const classColumns = ref([['高等数学', '大学英语', '计算机基础', '线性代数']])
+const classColumns = ref([[]])
+const sessionList = ref([])
+
+onShow(async () => {
+  try {
+    const list = await request({ url: '/capi/checkin/student/history', method: 'GET' })
+    const records = []
+    if (Array.isArray(list)) {
+      list.forEach(course => {
+        if (Array.isArray(course.records)) {
+          course.records.forEach(r => {
+            if (!r.checkedIn) {
+              records.push({
+                label: `${course.courseName || course.courseId} - ${r.sessionTitle || '签到#' + r.sessionId}`,
+                sessionId: r.sessionId
+              })
+            }
+          })
+        }
+      })
+    }
+    sessionList.value = records
+    if (records.length > 0) {
+      classColumns.value = [records.map(r => r.label)]
+    } else {
+      classColumns.value = [['暂无未签到记录']]
+    }
+  } catch (e) {
+    console.error('Failed to load history', e)
+  }
+})
 
 const confirmClass = (e) => {
-  selectedClass.value = e.value[0]
+  const label = e.value[0]
+  if (label === '暂无未签到记录') {
+    showClassSelect.value = false
+    return
+  }
+  const found = sessionList.value.find(r => r.label === label)
+  if (found) {
+    selectedClass.value = label
+    selectedSessionId.value = found.sessionId
+  }
   showClassSelect.value = false
 }
 
@@ -87,10 +129,10 @@ const handleUploadImage = () => {
   })
 }
 
-const submit = () => {
-  if (!selectedClass.value) {
+const submit = async () => {
+  if (!selectedSessionId.value) {
     uni.showToast({
-      title: '请选择课程班级',
+      title: '请选择补签的签到任务',
       icon: 'none'
     })
     return
@@ -104,18 +146,32 @@ const submit = () => {
     return
   }
   
-  uni.showToast({
-    title: '提交成功',
-    icon: 'success'
-  })
-  
-  // Clear form
-  selectedClass.value = ''
-  reason.value = ''
-  
-  setTimeout(() => {
-    uni.navigateBack()
-  }, 1500)
+  try {
+    uni.showLoading({ title: '提交中...' })
+    await request({
+      url: '/capi/checkin/student/supplement',
+      method: 'POST',
+      data: {
+        sessionId: selectedSessionId.value,
+        reason: reason.value
+      }
+    })
+    uni.hideLoading()
+    uni.showToast({
+      title: '提交成功',
+      icon: 'success'
+    })
+    
+    selectedClass.value = ''
+    selectedSessionId.value = ''
+    reason.value = ''
+    
+    setTimeout(() => {
+      uni.navigateBack()
+    }, 1500)
+  } catch (e) {
+    uni.hideLoading()
+  }
 }
 </script>
 
