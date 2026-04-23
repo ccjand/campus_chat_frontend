@@ -6,13 +6,29 @@ export default {
   onLaunch() {
     console.log('App Launch')
     this.bootWs()
+    // 网络状态变化时：恢复网络则尝试一次活性探测/重连
     uni.onNetworkStatusChange((res) => {
-      if (res.isConnected) this.bootWs()
+      if (res.isConnected) {
+        if (imSocket.isConnected()) {
+          imSocket.revalidate()
+        } else {
+          this.bootWs()
+        }
+      }
     })
   },
   onShow() {
     console.log('App Show')
-    this.bootWs()
+    // 关键：从后台回前台时，不能只看 isConnected() 标志位，
+    // 因为 iOS/Android 可能已经悄悄杀掉底层 socket 但没触发 onClose。
+    // 用 revalidate 主动探测一次。
+    const token = uni.getStorageSync('token')
+    if (!token) return
+    if (imSocket.isConnected()) {
+      imSocket.revalidate()
+    } else {
+      this.bootWs()
+    }
   },
   onHide() {
     console.log('App Hide')

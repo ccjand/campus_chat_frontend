@@ -116,11 +116,11 @@
           <text class="name">签到码</text>
         </view>
         
-        <view class="tool-item" @click="handleSupplement">
+        <view class="tool-item" @click="gotoSupplement">
           <view class="icon-box orange">
             <u-icon name="file-text" color="#EF6C00" size="24"></u-icon>
           </view>
-          <text class="name">申请补签</text>
+          <text class="name">{{ isTeacher ? '补签审批' : '申请补签' }}</text> 
         </view>
 
         <view class="tool-item" v-if="!isTeacher" @click="handleRefreshStudentSessions">
@@ -135,6 +135,13 @@
             <u-icon name="list-dot" color="#6B6CFF" size="24"></u-icon>
           </view>
           <text class="name">签到记录</text>
+        </view>
+
+        <view class="tool-item" v-if="isTeacher" @click="openTeacherRecord">
+          <view class="icon-box purple">
+            <u-icon name="list-dot" color="#6B6CFF" size="24"></u-icon>
+          </view>
+          <text class="name">签到名单</text>
         </view>
       </view>
     </view>
@@ -379,13 +386,37 @@ const loadUserInfo = () => {
 const loadStudentSessions = async () => {
   try {
     const list = await request({ url: '/capi/checkin/student/active', method: 'GET' })
+    
+    // 获取签到历史，以便比对哪些会话已经签到了
+    try {
+      await loadStudentHistory()
+    } catch (e) {}
+    
+    const checkedInSessionIds = new Set()
+    studentHistoryCourses.value.forEach(course => {
+      if (Array.isArray(course.records)) {
+        course.records.forEach(r => {
+          if (r.checkedIn || r.recStatus != null) {
+            checkedInSessionIds.add(String(r.sessionId))
+          }
+        })
+      }
+    })
+
     const now = Date.now()
-    const raw = Array.isArray(list) ? list : []
+    const raw = Array.isArray(list) ? list.map(item => ({ ...item, sessionId: item.id || item.sessionId })) : []
     studentActiveSessions.value = raw.filter((s) => {
       if (!s) return false
+      
+      // 判断后端返回的实体里是否包含签到码
+      s.codeEnabled = !!s.code;
+      
+      // 从历史记录里比对当前是否已经签到过
+      s.checkedIn = checkedInSessionIds.has(String(s.sessionId))
       if (s.checkedIn) return false
-      const end = Number(s.endTime)
-      if (Number.isFinite(end) && end < now) return false
+      
+      const end = s.endTime ? dayjs(s.endTime).valueOf() : (s.startTime ? dayjs(s.startTime).add(s.durationMinutes || 10, 'minute').valueOf() : 0)
+      if (end && end < now) return false
       return true
     })
   } catch (e) {
@@ -410,6 +441,16 @@ const toggleHistoryCourse = (courseId) => {
     ...historyCourseExpandedMap.value,
     [key]: !historyCourseExpandedMap.value[key]
   }
+}
+
+const openTeacherRecord = () => {
+  if (!teacherLastSessionId.value) {
+    uni.showToast({ title: '暂无当前签到会话，请先发起签到', icon: 'none' })
+    return
+  }
+  uni.navigateTo({
+    url: `/pages/workbench/checkin/teacher-record?sessionId=${teacherLastSessionId.value}`
+  })
 }
 
 const openStudentHistory = async () => {
@@ -774,8 +815,9 @@ const confirmTeacherCreate = async () => {
     });
     uni.hideLoading()
 
-    teacherLastSessionId.value = resp?.sessionId ? String(resp.sessionId) : ''
-    teacherLastEndTimeText.value = resp?.endTime ? dayjs(resp.endTime).format('YYYY-MM-DD HH:mm') : ''
+    const sessionId = resp?.id ? String(resp.id) : (resp?.sessionId ? String(resp.sessionId) : '')
+    teacherLastSessionId.value = sessionId
+    teacherLastEndTimeText.value = resp?.endTime ? dayjs(resp.endTime).format('YYYY-MM-DD HH:mm') : (resp?.startTime ? dayjs(resp.startTime).add(duration, 'minute').format('YYYY-MM-DD HH:mm') : '')
     uni.showToast({ title: '已发起', icon: 'success' })
   } catch (e) {
     uni.hideLoading()
@@ -885,9 +927,9 @@ const confirmTeacherCodeInput = async () => {
     })
     uni.hideLoading()
 
-    const sessionId = createResp?.sessionId ? String(createResp.sessionId) : ''
+    const sessionId = createResp?.id ? String(createResp.id) : (createResp?.sessionId ? String(createResp.sessionId) : '')
     teacherLastSessionId.value = sessionId
-    teacherLastEndTimeText.value = createResp?.endTime ? dayjs(createResp.endTime).format('YYYY-MM-DD HH:mm') : ''
+    teacherLastEndTimeText.value = createResp?.endTime ? dayjs(createResp.endTime).format('YYYY-MM-DD HH:mm') : (createResp?.startTime ? dayjs(createResp.startTime).add(duration, 'minute').format('YYYY-MM-DD HH:mm') : '')
 
     if (!sessionId) {
       uni.showToast({ title: '创建签到失败', icon: 'none' })
@@ -901,8 +943,11 @@ const confirmTeacherCodeInput = async () => {
       data: { code: String(teacherDesiredCode.value) }
     })
     uni.hideLoading()
-    teacherCode.value = resp?.code ? String(resp.code) : ''
-    teacherCodeExpireAt.value = resp?.expireAt ? Number(resp.expireAt) : 0
+    
+    // 后端返回的是 R<String>，经过 request 封装后 resp 就是字符串本身
+    teacherCode.value = typeof resp === 'string' ? resp : (resp?.code ? String(resp.code) : '')
+    // 签到码没有专门的 expireAt，跟 session 保持一致
+    teacherCodeExpireAt.value = 0 
     showTeacherCodeInputModal.value = false
     teacherHideRadius.value = false
     try {
@@ -1090,13 +1135,13 @@ const handleTeacherQr = async () => {
     })
     uni.hideLoading()
 
-    const sessionId = created?.sessionId ? String(created.sessionId) : ''
+    const sessionId = created?.id ? String(created.id) : (created?.sessionId ? String(created.sessionId) : '')
     if (!sessionId) {
       uni.showToast({ title: '创建签到失败', icon: 'none' })
       return
     }
     teacherLastSessionId.value = sessionId
-    teacherLastEndTimeText.value = created?.endTime ? dayjs(created.endTime).format('YYYY-MM-DD HH:mm') : ''
+    teacherLastEndTimeText.value = created?.endTime ? dayjs(created.endTime).format('YYYY-MM-DD HH:mm') : (created?.startTime ? dayjs(created.startTime).add(duration, 'minute').format('YYYY-MM-DD HH:mm') : '')
 
     showTeacherQrModal.value = true
     teacherQrSessionId.value = sessionId
@@ -1158,8 +1203,12 @@ const handleCodeCheckin = async () => {
   }
 }
 
-const handleSupplement = () => {
-  uni.navigateTo({ url: '/pages/workbench/supplement/index' })
+const gotoSupplement = () => {
+  if (isTeacher.value) {
+    uni.navigateTo({ url: '/pages/workbench/supplement-approve/index' })
+  } else {
+    uni.navigateTo({ url: '/pages/workbench/supplement/index' })
+  }
 }
 
 const formatTimeRange = (startTime, endTime) => {

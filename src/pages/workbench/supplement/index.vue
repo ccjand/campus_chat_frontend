@@ -2,7 +2,17 @@
   <view class="supplement-page">
     <top-nav title="补签申请" :show-avatar="false" :show-back="true" :show-default-icons="false"></top-nav>
     
-    <view class="content">
+    <u-tabs
+      :list="tabs"
+      :current="currentTab"
+      @change="onTabChange"
+      lineWidth="40"
+      lineColor="#007aff"
+      :activeStyle="{ color: '#007aff', fontWeight: 'bold' }"
+    ></u-tabs>
+
+    <!-- Tab 1: 申请补签 -->
+    <view class="content" v-if="currentTab === 0">
       <view class="form-card">
         <!-- Class Selection -->
         <view class="form-row" @click="showClassSelect = true">
@@ -48,6 +58,35 @@
       </view>
     </view>
     
+    <!-- Tab 2: 补签记录 -->
+    <view class="content record-content" v-if="currentTab === 1">
+      <scroll-view scroll-y class="record-scroll" v-if="recordList.length > 0">
+        <view class="record-card" v-for="(item, index) in recordList" :key="index">
+          <view class="record-header">
+            <text class="session-title">签到任务ID: {{ item.sessionId }}</text>
+            <text class="status-tag" :class="getStatusClass(item.status)">{{ getStatusText(item.status) }}</text>
+          </view>
+          <view class="record-body">
+            <view class="info-row">
+              <text class="info-label">申请理由：</text>
+              <text class="info-value">{{ item.reason || '无' }}</text>
+            </view>
+            <view class="info-row" v-if="item.status !== 0">
+              <text class="info-label">审批意见：</text>
+              <text class="info-value">{{ item.approveNote || '无' }}</text>
+            </view>
+            <view class="info-row">
+              <text class="info-time">{{ formatTime(item.createTime) }}</text>
+            </view>
+          </view>
+        </view>
+      </scroll-view>
+      
+      <view class="empty-state" v-else>
+        <u-empty mode="list" text="暂无补签记录"></u-empty>
+      </view>
+    </view>
+
     <!-- Class Picker -->
     <u-picker 
       :show="showClassSelect" 
@@ -63,6 +102,10 @@ import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import TopNav from '@/components/TopNav.vue'
 import request from '@/utils/request'
+import dayjs from 'dayjs'
+
+const tabs = ref([{ name: '申请补签' }, { name: '补签记录' }])
+const currentTab = ref(0)
 
 const selectedClass = ref('')
 const selectedSessionId = ref('')
@@ -71,6 +114,51 @@ const showClassSelect = ref(false)
 
 const classColumns = ref([[]])
 const sessionList = ref([])
+
+const recordList = ref([])
+
+const onTabChange = (index) => {
+  currentTab.value = index.index
+  if (currentTab.value === 1) {
+    loadRecords()
+  }
+}
+
+const loadRecords = async () => {
+  try {
+    uni.showLoading({ title: '加载中...' })
+    // 注意：这里需要后端补充一个获取学生补签记录的接口，暂定为 GET /capi/checkin/student/supplements
+    const list = await request({ url: '/capi/checkin/student/supplements', method: 'GET' })
+    recordList.value = Array.isArray(list) ? list : []
+  } catch (e) {
+    console.error('Failed to load records', e)
+  } finally {
+    uni.hideLoading()
+  }
+}
+
+const getStatusText = (status) => {
+  switch (status) {
+    case 0: return '待审批'
+    case 1: return '已通过'
+    case 2: return '已拒绝'
+    default: return '未知状态'
+  }
+}
+
+const getStatusClass = (status) => {
+  switch (status) {
+    case 0: return 'status-pending'
+    case 1: return 'status-approved'
+    case 2: return 'status-rejected'
+    default: return ''
+  }
+}
+
+const formatTime = (timeStr) => {
+  if (!timeStr) return ''
+  return dayjs(timeStr).format('YYYY-MM-DD HH:mm:ss')
+}
 
 onShow(async () => {
   try {
@@ -282,6 +370,86 @@ const submit = async () => {
     .submit-btn-container {
       margin-top: 30px;
       padding: 0 15px;
+    }
+    
+    &.record-content {
+      padding: 10px;
+      background-color: #F3F3F3;
+      min-height: calc(100vh - 100px);
+      
+      .record-scroll {
+        height: 100%;
+      }
+      
+      .record-card {
+        background-color: #fff;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 10px;
+        
+        .record-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 10px;
+          border-bottom: 1px solid #eee;
+          padding-bottom: 10px;
+          
+          .session-title {
+            font-size: 16px;
+            font-weight: 500;
+            color: #333;
+          }
+          
+          .status-tag {
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            
+            &.status-pending {
+              background-color: #FFF3E0;
+              color: #FF9800;
+            }
+            &.status-approved {
+              background-color: #E8F5E9;
+              color: #4CAF50;
+            }
+            &.status-rejected {
+              background-color: #FFEBEE;
+              color: #F44336;
+            }
+          }
+        }
+        
+        .record-body {
+          .info-row {
+            margin-bottom: 6px;
+            display: flex;
+            
+            .info-label {
+              color: #666;
+              font-size: 14px;
+              width: 70px;
+            }
+            
+            .info-value {
+              color: #333;
+              font-size: 14px;
+              flex: 1;
+            }
+            
+            .info-time {
+              color: #999;
+              font-size: 12px;
+              margin-top: 4px;
+            }
+          }
+        }
+      }
+      
+      .empty-state {
+        margin-top: 50px;
+      }
     }
   }
 }

@@ -68,7 +68,7 @@ const fetchHistory = async () => {
   loading.value = true
   try {
     const data = await request({
-      url: '/capi/leave/history',
+      url: '/capi/leave/mine',
       method: 'GET'
     })
     items.value = Array.isArray(data) ? data : []

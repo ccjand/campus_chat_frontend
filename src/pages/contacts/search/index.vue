@@ -34,7 +34,7 @@
       </view>
       
       <!-- User Detail Card List -->
-      <view v-if="userResults && userResults.length > 0" class="user-card" v-for="userResult in userResults" :key="userResult.uid">
+      <view v-if="userResults && userResults.length > 0" class="user-card" v-for="userResult in userResults" :key="userResult.userId">
         <view class="card-header">
           <view class="avatar-wrapper">
             <view class="custom-avatar-text" :style="{ backgroundColor: getAvatarBgColor(userResult.name) }">
@@ -43,7 +43,7 @@
           </view>
           <view class="info">
             <text class="name">{{ userResult.name || '未知用户' }}</text>
-            <text class="desc">账号: {{ userResult.accountNumber || userResult.uid }}</text>
+            <text class="desc">账号: {{ userResult.accountNumber || userResult.userId }}</text>
             <text class="desc">{{ userResult.departmentName || '未知学院' }}</text>
           </view>
         </view>
@@ -122,7 +122,7 @@ const handleSearch = async () => {
 }
 
 const handleAddFriend = (user) => {
-  if (!user?.uid) return
+  if (!user?.userId) return
   uni.showModal({
     title: '添加好友',
     content: '',
@@ -135,7 +135,7 @@ const handleAddFriend = (user) => {
             url: '/capi/friend/request/send',
             method: 'POST',
             data: { 
-              targetId: user.uid,
+              targetId: user.userId,
               reason: res.content || '请求添加你为好友'
             }
           })
@@ -151,12 +151,12 @@ const handleRemoveFriend = (user) => {
     title: '提示',
     content: '确定要删除该好友吗？',
     success: async (res) => {
-      if (res.confirm && user?.uid) {
+      if (res.confirm && user?.userId) {
         try {
           await request({
             url: '/capi/friend/remove',
             method: 'POST',
-            data: { targetId: user.uid }
+            data: { targetId: user.userId }
           })
           uni.showToast({ title: '已删除', icon: 'success' })
           user.isFriend = false
@@ -171,12 +171,12 @@ const handleBlock = (user) => {
     title: '提示',
     content: '确定要拉黑该好友吗？',
     success: async (res) => {
-      if (res.confirm && user?.uid) {
+      if (res.confirm && user?.userId) {
         try {
           await request({
             url: '/capi/friend/block',
             method: 'POST',
-            data: { targetId: user.uid }
+            data: { targetId: user.userId }
           })
           uni.showToast({ title: '已拉黑', icon: 'success' })
           // 拉黑后可能不再视为好友，或者状态改变
@@ -188,18 +188,18 @@ const handleBlock = (user) => {
 }
 
 const handleSendMessage = async (user) => {
-  if (!user?.uid) return
+  if (!user?.userId) return
   try {
     // 获取或创建房间
     const room = await request({
       url: '/capi/contact/room/single',
       method: 'POST',
-      data: { friendId: user.uid }
+      data: { friendId: user.userId }
     })
     if (room && room.id) {
       const title = user.name ? encodeURIComponent(String(user.name)) : ''
       uni.navigateTo({
-        url: `/pages/chat/index?roomId=${encodeURIComponent(String(room.id))}&type=single&title=${title}&receiverId=${user.uid}`
+        url: `/pages/chat/index?roomId=${encodeURIComponent(String(room.id))}&type=single&title=${title}&receiverId=${user.userId}`
       })
     }
   } catch (e) {}

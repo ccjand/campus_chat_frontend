@@ -18,14 +18,14 @@
             <text class="grid-text">课堂签到</text>
           </view>
 
-          <view class="grid-item" @click="navigateTo('/pages/workbench/leave/index')">
+          <view class="grid-item" @click="handleLeave">
             <view class="icon-wrapper leave">
               <u-icon name="calendar-fill" size="28" color="#fff"></u-icon>
             </view>
             <text class="grid-text">请假申请</text>
           </view>
 
-          <view class="grid-item" @click="navigateTo('/pages/workbench/leave/history')">
+          <view class="grid-item" @click="handleLeaveHistory">
             <view class="icon-wrapper history">
               <u-icon name="clock-fill" size="28" color="#fff"></u-icon>
             </view>
@@ -56,11 +56,26 @@
 </template>
 
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import BottomNav from '@/components/BottomNav.vue'
 
 const bottomNavRef = ref(null)
+const userInfo = ref({})
+
+const isTeacher = computed(() => {
+  const role = userInfo.value?.role
+  if (typeof role === 'number') return role === 2 || role === 3
+  return String(role || '').includes('教师') || String(role || '').includes('辅导员')
+})
+
+const handleLeave = () => {
+  navigateTo('/pages/workbench/leave/index')
+}
+
+const handleLeaveHistory = () => {
+  navigateTo('/pages/workbench/leave/history')
+}
 
 const navigateTo = (url) => {
   uni.navigateTo({
@@ -73,6 +88,9 @@ const showToast = (title) => {
 }
 
 onShow(() => {
+  const info = uni.getStorageSync('userInfo')
+  userInfo.value = info && typeof info === 'object' ? info : {}
+
   nextTick(() => {
     if (bottomNavRef.value?.loadBadgeInfo) {
       bottomNavRef.value.loadBadgeInfo()

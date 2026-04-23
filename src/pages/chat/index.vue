@@ -392,44 +392,31 @@ const applyIncomingChatMessage = (ui, raw) => {
   const clientMsgId = ui?.clientMsgId != null ? String(ui.clientMsgId) : null
   const fromUidText = raw?.fromUid != null ? String(raw.fromUid) : ''
   const isSelf = fromUidText && String(fromUidText) === String(currentUserId.value)
-  
-  console.log(`applyIncomingChatMessage: isSelf=${isSelf}, fromUid=${fromUidText}, currentUserId=${currentUserId.value}`)
 
-  if (isSelf) {
-    let idx = -1
-    if (clientMsgId) {
-      idx = messages.value.findIndex((m) => m?.pending && String(m.clientMsgId) === clientMsgId)
-    }
-    if (idx < 0) {
-      // Fallback: use fromUid to deduplicate by finding the first pending message
-      idx = messages.value.findIndex((m) => m?.pending)
-    }
+  console.log(`applyIncomingChatMessage: isSelf=${isSelf}, fromUid=${fromUidText}, currentUserId=${currentUserId.value}, clientMsgId=${clientMsgId}`)
+
+  // 仅当"是自己发的 + 带上了 clientMsgId + 能精确找到对应 pending 消息"时才做替换。
+  // 之前的 fallback（随便找一个 pending）在快速连发多条时会错位，已删除。
+  if (isSelf && clientMsgId) {
+    const idx = messages.value.findIndex((m) => m?.pending && String(m.clientMsgId) === clientMsgId)
     if (idx >= 0) {
-      console.log('applyIncomingChatMessage: Found local pending message at index', idx, 'Replacing it for deduplication.')
-      // Always scroll to bottom for your own messages
-      const shouldAutoScroll = true
-      // Use splice to guarantee Vue 3 array reactivity
+      console.log('applyIncomingChatMessage: 精确匹配到 pending 消息 idx=', idx, '替换为服务端版本')
       messages.value.splice(idx, 1, { ...ui, pending: false })
       messageIdSet.add(idText)
       nextTick(() => {
         measureBottomThreshold()
-        if (!shouldAutoScroll) {
-          hasNewMessageWhileAway.value = true
-          showScrollDown.value = true
-          return
-        }
         setTimeout(() => {
           scrollToBottom()
           showScrollDown.value = false
           hasNewMessageWhileAway.value = false
-        }, 100) // 增加延时确保DOM渲染完毕
+        }, 100)
       })
       return
-    } else {
-      console.log('applyIncomingChatMessage: isSelf is true, but no pending message found. Will append as new.')
     }
   }
 
+  // 其它所有情况（别人的消息、自己消息但没对上 pending）都走标准 append。
+  // appendMessageIfNeeded 内部已经用 messageIdSet 去重了，不会重复。
   appendMessageIfNeeded({ ...ui, pending: false })
 }
 
@@ -549,6 +536,64 @@ const handleWsPayload = (payload) => {
       scheduleReportRead()
     }
     return
+  }
+}
+
+/**
+ * 断线重连 / 从后台回前台后调用：
+ * 基于本地最后一条"真实"消息 id，向后端拉取该 id 之后的所有新消息，
+ * 用来补全掉线期间漏收的消息。不会替换已有消息，只会追加。
+ *
+ * 需要后端新增接口：GET /capi/message/since?roomId=xxx&sinceId=xxx&limit=200
+ */
+const fetchSinceLastMessage = async () => {
+  const rid = roomId.value
+  if (!rid) return
+
+  // 找到本地最新的一条"非 pending、非 local-" 的消息作为游标起点
+  let sinceId = null
+  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+    const m = messages.value[i]
+    if (!m) continue
+    if (m.pending) continue
+    const idStr = m.id != null ? String(m.id) : ''
+    if (!idStr || idStr.startsWith('local-')) continue
+    sinceId = m.id
+    break
+  }
+
+  // 本地还没任何真实消息，说明是新进聊天页，走常规初始加载
+  if (sinceId == null) {
+    return loadInitialMessages(false)
+  }
+
+  try {
+    const list = await request({
+      url: '/capi/message/since',
+      method: 'GET',
+      data: {
+        roomId: Number(rid),
+        sinceId: sinceId,
+        limit: 200
+      }
+    })
+    const arr = Array.isArray(list) ? list : []
+    if (!arr.length) {
+      console.log('fetchSinceLastMessage: 没有漏收的消息')
+      return
+    }
+    console.log(`fetchSinceLastMessage: 补回 ${arr.length} 条漏收消息`)
+
+    // 按创建时间升序处理（后端按 id 升序返回即可）
+    arr.forEach((item) => {
+      const ui = mapChatMessageRespToUi(item)
+      if (!ui) return
+      if (hiddenMessageIdSet.has(String(ui.id))) return
+      // 复用已有的 applyIncomingChatMessage 逻辑，内部会去重
+      applyIncomingChatMessage(ui, item)
+    })
+  } catch (e) {
+    console.error('fetchSinceLastMessage 失败', e)
   }
 }
 
@@ -750,16 +795,14 @@ onLoad(async (options) => {
   // 1) 先注册监听
   removeWsListener = imSocket.onMessage(handleWsPayload)
   
-  // Register status listener for reconnection events to fetch missing history
+// 重连事件：基于本地最后一条消息 id 做增量拉取，正确补全 gap，
   removeWsStatusListener = imSocket.onStatusChange((status) => {
     if (status === 'connected') {
-      console.log('WS reconnected in chat room, refreshing messages...')
-      // Do a silent refresh to fetch any messages missed during the offline window
-      // without jumping the scrollbar
+      console.log('WS 已(重新)连接，开始增量补拉漏收消息...')
       if (roomId.value) {
-        // We only reload if we have a room, and we do it carefully so user doesn't lose position
-        const currentMsgCount = messages.value.length
-        loadInitialMessages(true).catch(() => {})
+        fetchSinceLastMessage().catch(() => {})
+        // 房间 topic 订阅在 imSocket 内部会根据 activeSubscriptions 自动恢复，
+        // 这里不必重复 subscribe。
       }
     }
   })
@@ -785,13 +828,17 @@ onLoad(async (options) => {
   scheduleReportRead(0)
 })
 
-// 从后台恢复时补一次拉取，防止期间丢消息
+// 从后台恢复时：
+// 1) 主动让 imSocket 探活（可能底层 socket 已被 OS 杀掉但 onClose 没触发）
+// 2) 基于本地最后一条消息 id 做增量补拉，而不是重置整个列表
 onShow(() => {
-  if (roomId.value) {
-    loadInitialMessages().catch(() => {})
-    // 重新订阅（幂等）
-    imSocket.subscribe(`/topic/room/${roomId.value}`, `room-${roomId.value}`)
-  }
+  if (!roomId.value) return
+  // 触发活性探测；若已断开会自动走重连流程
+  try { imSocket.revalidate() } catch (e) {}
+  // 幂等重订阅（即使 imSocket 内部会自动恢复，这里多订阅一次也是无害的）
+  imSocket.subscribe(`/topic/room/${roomId.value}`, `room-${roomId.value}`)
+  // 增量补拉
+  fetchSinceLastMessage().catch(() => {})
 })
 
 onUnload(() => {
