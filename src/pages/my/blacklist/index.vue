@@ -21,9 +21,7 @@
       <view class="list" v-else>
         <view class="list-item" v-for="item in blacklist" :key="item.targetId">
           <view class="item-left">
-            <view class="custom-avatar" :style="{ backgroundColor: getAvatarBgColor(item.targetName) }">
-              <text class="avatar-text">{{ getAvatarText(item.targetName) }}</text>
-            </view>
+            <u-avatar :src="getAvatarUrl(item.avatar)" size="40" shape="circle" style="margin-right: 12px;"></u-avatar>
             <view class="item-info">
               <text class="item-name">{{ item.targetName || '未知用户' }}</text>
               <text class="item-desc">加入时间: {{ formatTime(item.createTime) }}</text>
@@ -42,26 +40,11 @@
 import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import request from '@/utils/request'
+import uAvatar from 'uview-plus/components/u-avatar/u-avatar.vue'
+import { getAvatarUrl } from '@/utils/avatar'
 
 const loading = ref(false)
 const blacklist = ref([])
-
-const getAvatarText = (name) => {
-  const text = name || ''
-  if (text.includes('辅导员') || text.includes('老师')) return '师'
-  if (text.includes('教授')) return '授'
-  if (text.includes('同学') || text.includes('学生')) return '学'
-  return text.charAt(0) || 'U'
-}
-
-const getAvatarBgColor = (name) => {
-  const text = getAvatarText(name)
-  if (text === '学' || text === '师') return '#F56C6C'
-  if (text === '授') return '#F59E0B'
-  const colors = ['#F56C6C', '#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#F97316']
-  const code = text.charCodeAt(0) || 0
-  return colors[code % colors.length]
-}
 
 const formatTime = (arr) => {
   if (Array.isArray(arr)) {

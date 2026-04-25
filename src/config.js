@@ -4,7 +4,7 @@ const imgPort = 19000
 const wsPort = 8080
 
 let apiBaseUrl = `http://${ip}:${apiPort}`
-let imgBaseUrl = `http://${ip}:${imgPort}/campus-chat/`
+let imgBaseUrl = `http://115.190.249.67:19000/campus-chat/`
 let wsBaseUrl = `ws://${ip}:${wsPort}/capi/ws/chat`
 
 try {

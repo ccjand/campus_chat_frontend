@@ -6,7 +6,7 @@
         <view class="left" @click="handleBack">
           <u-icon name="arrow-left" size="20" color="#333" bold></u-icon>
         </view>
-        <text class="page-title">班级群组</text>
+        <text class="page-title">群组</text>
         <view class="right"></view>
       </view>
     </view>
@@ -19,12 +19,10 @@
         <text class="state-text">暂无群组</text>
       </view>
       <view class="list" v-else>
-        <view class="list-item" v-for="item in groups" :key="item.roomId" @click="openChat(item)">
-          <view class="item-left">
-            <view class="custom-avatar" :style="{ backgroundColor: '#8B5CF6' }">
-              <text class="avatar-text">{{ item.name ? item.name.charAt(0) : '群' }}</text>
-            </view>
-            <view class="item-info">
+        <view class="list-item" v-for="(item, index) in groups" :key="index" @click="openChat(item)">
+            <view class="item-left">
+              <u-avatar :src="getAvatarUrl(item.avatar)" size="40" shape="circle" style="margin-right: 12px;"></u-avatar>
+              <view class="item-info">
               <text class="item-name">{{ item.name || '未知群组' }}</text>
               <text class="item-desc">群组会话</text>
             </view>
@@ -40,6 +38,8 @@
 import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import request from '@/utils/request'
+import uAvatar from 'uview-plus/components/u-avatar/u-avatar.vue'
+import { getAvatarUrl } from '@/utils/avatar'
 
 const loading = ref(false)
 const groups = ref([])

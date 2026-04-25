@@ -156,7 +156,7 @@
 		{
 			"path": "pages/workbench/group/index",
 			"style": {
-				"navigationBarTitleText": "班级群组",
+				"navigationBarTitleText": "群组",
 				"navigationBarBackgroundColor": "#fff"
 			}
 		},

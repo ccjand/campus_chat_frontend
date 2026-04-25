@@ -42,9 +42,7 @@
         </view>
         
         <view class="footer-links">
-          <text class="link">忘记密码</text>
-          <text class="divider">|</text>
-          <text class="link">新用户注册</text>
+          <text class="link" @click="goToUpdatePassword">忘记密码</text>
         </view>
       </view>
     </view>
@@ -57,11 +55,22 @@ import uIcon from 'uview-plus/components/u-icon/u-icon.vue'
 import request from '@/utils/request' // 引入封装的请求
 import imSocket from '@/utils/imSocket'
 import CONFIG from '@/config.js'
+import { getAvatarUrl } from '@/utils/avatar'
 
 const formData = ref({
   account: '2022001',
   password: '123456'
 })
+
+const goToUpdatePassword = () => {
+  // 在跳转到忘记密码页面前，确保清理掉残留的登录状态缓存
+  uni.removeStorageSync('token')
+  uni.removeStorageSync('uid')
+  uni.removeStorageSync('userInfo')
+  uni.navigateTo({
+    url: '/pages/my/password/index'
+  })
+}
 
 const normalizeRoleText = (role) => {
   const num = typeof role === 'number' ? role : Number(role)
@@ -76,13 +85,7 @@ const normalizeRoleText = (role) => {
 
 const buildUserInfoFromLoginResp = (loginResp) => {
   const roleText = normalizeRoleText(loginResp?.role)
-  const avatar = (() => {
-    const raw = loginResp?.avatar
-    if (!raw) return ''
-    const text = String(raw)
-    if (text.startsWith('http') || text.startsWith('data:')) return text
-    return CONFIG.IMG_BASE_URL + text
-  })()
+  const avatar = getAvatarUrl(loginResp?.avatar)
   return {
     ...loginResp, // Spread all raw fields from backend so we don't miss anything (name, accountNumber, departmentName)
     uid: loginResp?.uid,
@@ -117,7 +120,8 @@ const handleLogin = async () => {
       data: {
         accountNumber: formData.value.account,
         password: formData.value.password
-      }
+      },
+      hideErrorToast: true
     })
     
     const userInfo = buildUserInfoFromLoginResp(loginResp)
@@ -139,10 +143,10 @@ const handleLogin = async () => {
     }, 1500)
     
   } catch (error) {
-    // 错误提示已在 request.js 中统一弹出，这里只需要隐藏 loading
+    // 隐藏 loading 并弹出自定义提示
+    uni.hideLoading()
+    uni.showToast({ title: '请输入正确的账号密码。', icon: 'none' })
     console.error('登录失败:', error)
-    // 移除 uni.hideLoading() 以避免关闭 request.js 中可能弹出的 toast
-    // uni.hideLoading()
   }
 }
 </script>

@@ -2,9 +2,7 @@
   <view class="message-row" :class="{ 'is-own': isOwn, 'is-recall': message.type === 'recall' }">
     <template v-if="message.type !== 'recall'">
       <view class="avatar-wrapper" v-if="!isOwn && showAvatar">
-        <view class="custom-avatar-text" :style="{ backgroundColor: getAvatarBgColor(message.sender) }">
-          <text>{{ getAvatarText(message.sender) }}</text>
-        </view>
+        <u-avatar :src="getAvatarUrl(message.sender?.avatar)" size="40" shape="circle"></u-avatar>
       </view>
       <view class="avatar-placeholder" v-else-if="!isOwn"></view>
       
@@ -30,9 +28,7 @@
       </view>
       
       <view class="avatar-wrapper" v-if="isOwn">
-        <view class="custom-avatar-text" :style="{ backgroundColor: myAvatarBgColor }">
-          <text>{{ myAvatarText }}</text>
-        </view>
+        <u-avatar :src="myAvatarUrl" size="40" shape="circle"></u-avatar>
       </view>
     </template>
 
@@ -46,7 +42,9 @@
 
 <script setup>
 import { computed } from 'vue'
+import uAvatar from 'uview-plus/components/u-avatar/u-avatar.vue'
 import AttachmentCard from './AttachmentCard.vue'
+import { getAvatarUrl } from '@/utils/avatar'
 
 const props = defineProps({
   message: {
@@ -69,40 +67,12 @@ const props = defineProps({
 
 const emit = defineEmits(['longpress'])
 
-// Avatar Text logic
-const getAvatarText = (user) => {
-  const name = user?.name || ''
-  if (name.includes('辅导员') || name.includes('老师')) return '师'
-  if (name.includes('教授')) return '授'
-  if (name.includes('同学') || name.includes('学生')) return '学'
-  return name.charAt(0) || 'U'
-}
-
-const getAvatarBgColor = (user) => {
-  const text = getAvatarText(user)
-  if (text === '学' || text === '师') return '#F56C6C'
-  if (text === '授') return '#F59E0B'
-  if (text === '群' || text === '班') return '#8B5CF6'
-  const colors = ['#F56C6C', '#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#F97316']
-  const code = text.charCodeAt(0) || 0
-  return colors[code % colors.length]
-}
-
-const myAvatarText = computed(() => {
+const myAvatarUrl = computed(() => {
   try {
     const cache = uni.getStorageSync('userInfo') || {}
-    return getAvatarText(cache)
+    return getAvatarUrl(cache.avatar)
   } catch (e) {
-    return '我'
-  }
-})
-
-const myAvatarBgColor = computed(() => {
-  try {
-    const cache = uni.getStorageSync('userInfo') || {}
-    return getAvatarBgColor(cache)
-  } catch (e) {
-    return '#3B82F6'
+    return getAvatarUrl(null)
   }
 })
 

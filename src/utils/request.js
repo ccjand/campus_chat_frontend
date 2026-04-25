@@ -79,11 +79,13 @@ const request = (options) => {
             resolve(apiResult.data)
           } else {
             // 失败：统一提示错误信息
-            uni.showToast({
-              title: apiResult.msg || '请求失败',
-              icon: 'none',
-              duration: 2000
-            })
+            if (!options.hideErrorToast) {
+              uni.showToast({
+                title: apiResult.msg || '请求失败',
+                icon: 'none',
+                duration: 2000
+              })
+            }
             // 如果需要特定处理（如 401 未登录），可以在这里添加逻辑
             if (apiResult.code === 401) {
                 // 跳转登录页等
@@ -91,10 +93,13 @@ const request = (options) => {
             reject(new Error(apiResult.msg))
           }
         } else {
-          uni.showToast({
-            title: '服务器繁忙 (' + res.statusCode + ')',
-            icon: 'none'
-          })
+          // 如果传入了 hideErrorToast: true，就不弹全局错误提示
+          if (!options.hideErrorToast) {
+            uni.showToast({
+              title: '服务器繁忙 (' + res.statusCode + ')',
+              icon: 'none'
+            })
+          }
           reject(new Error('HTTP Error ' + res.statusCode))
         }
       },

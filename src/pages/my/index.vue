@@ -11,9 +11,7 @@
     <view class="header-section">
       <view class="user-info">
         <view class="avatar-wrapper">
-          <view class="custom-avatar-text" :style="{ backgroundColor: '#75B3FF' }">
-            <text>{{ avatarText }}</text>
-          </view>
+          <u-avatar :src="realAvatar" size="60"></u-avatar>
         </view>
         <view class="info-content">
           <view class="name-row">
@@ -86,12 +84,16 @@
 import { ref, computed, nextTick } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import uIcon from 'uview-plus/components/u-icon/u-icon.vue'
+import uAvatar from 'uview-plus/components/u-avatar/u-avatar.vue'
 import BottomNav from '@/components/BottomNav.vue'
 import request from '@/utils/request'
 import imSocket from '@/utils/imSocket'
+import { getAvatarUrl } from '@/utils/avatar'
 
 const bottomNavRef = ref(null)
 const userInfo = ref({})
+
+const realAvatar = computed(() => getAvatarUrl(userInfo.value?.avatar))
 
 const avatarText = computed(() => {
   const name = userInfo.value.name || ''

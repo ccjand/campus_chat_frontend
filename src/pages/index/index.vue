@@ -7,13 +7,6 @@
       </view>
     </view>
     
-    <view class="search-container">
-      <view class="search-box">
-        <u-icon name="search" color="#999" size="18"></u-icon>
-        <text class="search-placeholder">搜索</text>
-      </view>
-    </view>
-
     <view class="tab-content">
       <scroll-view scroll-y class="content-scroll">
         <view class="message-scroll-body">
@@ -39,6 +32,7 @@ import BottomNav from '@/components/BottomNav.vue'
 import request from '@/utils/request'
 import imSocket from '@/utils/imSocket'
 import dayjs from 'dayjs'
+import { getAvatarUrl } from '@/utils/avatar'
 
 const bottomNavRef = ref(null)
 const currentMainTab = ref(0)
@@ -102,7 +96,7 @@ const mapRecentContactToUi = (item) => {
     roomId,
     messageType,
     name: item.name || '会话 ' + roomId, // Fallback if name is missing in Contact
-    avatar: item.avatar || '',
+    avatar: getAvatarUrl(item.avatar),
     summary: item.summary || '',
     unreadCount: Number(item.unreadCount || 0),
     timestamp: formatSessionTime(item.activeTime || item.timestamp)
@@ -129,7 +123,7 @@ const loadRecentContacts = async () => {
         roomId,
         messageType,
         name: item.name || (messageType === 'group' ? '群聊 ' + roomId : '会话 ' + roomId),
-        avatar: item.avatar || '',
+        avatar: getAvatarUrl(item.avatar),
         summary: item.summary || '',
         unreadCount: Number(item.unreadCount || 0),
         timestamp: formatSessionTime(item.timestamp || item.activeTime),
@@ -295,26 +289,6 @@ onHide(() => {
         font-size: 18px;
         font-weight: bold;
         color: #333;
-      }
-    }
-  }
-
-  .search-container {
-    background-color: #fff;
-    padding: 10px 15px;
-    
-    .search-box {
-      background-color: #F5F6FA;
-      height: 36px;
-      border-radius: 18px;
-      display: flex;
-      align-items: center;
-      padding: 0 15px;
-      
-      .search-placeholder {
-        font-size: 14px;
-        color: #999;
-        margin-left: 8px;
       }
     }
   }

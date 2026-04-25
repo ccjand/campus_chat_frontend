@@ -37,9 +37,11 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import uIcon from 'uview-plus/components/u-icon/u-icon.vue'
 import uAvatar from 'uview-plus/components/u-avatar/u-avatar.vue'
 import CONFIG from '@/config.js'
+import { getAvatarUrl } from '@/utils/avatar'
 
 const props = defineProps({
   title: {
@@ -65,11 +67,7 @@ const emit = defineEmits(['back'])
 const userInfo = ref({})
 
 const userAvatar = computed(() => {
-  const avatar = userInfo.value?.avatar
-  if (!avatar) return '/static/logo.png'
-  const text = String(avatar)
-  if (text.startsWith('http') || text.startsWith('data:')) return text
-  return CONFIG.IMG_BASE_URL + text
+  return getAvatarUrl(userInfo.value?.avatar)
 })
 
 const userHonor = computed(() => {
@@ -101,11 +99,19 @@ const userHonorType = computed(() => {
   return ''
 })
 
-try {
-  userInfo.value = uni.getStorageSync('userInfo') || {}
-} catch (e) {
-  userInfo.value = {}
+const loadUserInfo = () => {
+  try {
+    userInfo.value = uni.getStorageSync('userInfo') || {}
+  } catch (e) {
+    userInfo.value = {}
+  }
 }
+
+loadUserInfo()
+
+onShow(() => {
+  loadUserInfo()
+})
 
 const handleBack = () => {
   emit('back')

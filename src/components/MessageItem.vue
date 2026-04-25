@@ -1,9 +1,7 @@
 <template>
   <view class="message-item" @click="handleClick">
     <view class="avatar-container">
-      <view class="custom-avatar" :style="{ backgroundColor: avatarBgColor }">
-        <text class="avatar-text">{{ avatarText }}</text>
-      </view>
+      <u-avatar :src="getAvatarUrl(message.avatar)" size="50" shape="circle"></u-avatar>
       <view v-if="message.unreadCount > 0" class="badge">
         <text class="badge-text">{{ message.unreadCount }}</text>
       </view>
@@ -23,35 +21,14 @@
 
 <script setup>
 import { computed } from 'vue'
+import uAvatar from 'uview-plus/components/u-avatar/u-avatar.vue'
+import { getAvatarUrl } from '@/utils/avatar'
 
 const props = defineProps({
   message: {
     type: Object,
     required: true
   }
-})
-
-// Extract the first character of the name or role for the avatar
-const avatarText = computed(() => {
-  const name = props.message.name || ''
-  if (name.includes('辅导员') || name.includes('老师')) return '师'
-  if (name.includes('教授')) return '授'
-  if (name.includes('班')) return '班'
-  if (name.includes('同学') || name.includes('学生')) return '学'
-  return name.charAt(0) || 'U'
-})
-
-// Generate a background color based on the text
-const avatarBgColor = computed(() => {
-  const text = avatarText.value
-  if (text === '学' || text === '师') return '#F56C6C' // Red-ish
-  if (text === '班' || text === '授') return '#8B5CF6' // Purple-ish
-  if (text === '群') return '#3B82F6' // Blue-ish
-  
-  // Default random-ish colors based on char code
-  const colors = ['#F56C6C', '#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#F97316']
-  const code = text.charCodeAt(0) || 0
-  return colors[code % colors.length]
 })
 
 const handleClick = () => {

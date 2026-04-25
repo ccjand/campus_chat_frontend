@@ -36,7 +36,7 @@
             <view class="icon-wrapper bg-green">
               <u-icon name="chat-fill" color="#fff" size="24"></u-icon>
             </view>
-            <text class="item-text">班级群组</text>
+            <text class="item-text">群组</text>
           </view>
           <u-icon name="arrow-right" color="#ccc" size="14"></u-icon>
         </view>
@@ -44,24 +44,19 @@
 
       <!-- Contacts -->
       <view class="contact-list">
-        <view class="list-title" v-if="contacts && contacts.length > 0">好友列表</view>
+        <view class="list-title" v-if="flatContacts && flatContacts.length > 0">好友列表</view>
         
-        <view v-if="loading" class="state">
+        <view v-if="loading && (!flatContacts || flatContacts.length === 0)" class="state">
           <text class="state-text">加载中...</text>
         </view>
-        <view v-else-if="!contacts || contacts.length === 0" class="state">
+        <view v-else-if="!flatContacts || flatContacts.length === 0" class="state">
           <text class="state-text">暂无联系人</text>
         </view>
-        <view v-else v-for="(group, groupIndex) in contacts" :key="groupIndex">
-          <!-- Section Header -->
-          <view v-if="group.letter !== '#'" class="section-header" style="display:none">{{ group.letter }}</view>
-          
-          <!-- Contact Rows -->
-          <view class="list-item" v-for="(contact, contactIndex) in group.list" :key="contactIndex" @click="openChat(contact)">
+        <view v-else>
+          <!-- 直接渲染扁平化的联系人列表，不再进行双层 v-for 循环嵌套 -->
+          <view class="list-item" v-for="(contact, contactIndex) in flatContacts" :key="'friend_' + contactIndex" @click="openFriendCard(contact)">
             <view class="item-left">
-              <view class="custom-avatar" :style="{ backgroundColor: getAvatarBgColor(contact) }">
-                <text class="avatar-text">{{ getAvatarText(contact) }}</text>
-              </view>
+              <u-avatar :src="contact.avatar" size="40" style="margin-right: 12px;"></u-avatar>
               <view class="item-info">
                 <text class="item-name">{{ contact.name }}</text>
                 <text class="item-desc" v-if="contact.desc">{{ contact.desc }}</text>
@@ -79,29 +74,59 @@
     </scroll-view>
     
     <bottom-nav ref="bottomNavRef" current="contacts"></bottom-nav>
+
+    <!-- Friend Detail Card -->
+    <u-popup :show="showFriendCard" mode="center" round="16" :customStyle="{ width: '80%' }" @close="closeFriendCard">
+      <view class="friend-card" v-if="selectedFriend">
+        <view class="card-header">
+          <u-avatar :src="selectedFriend.avatar" size="60"></u-avatar>
+          <view class="card-info">
+            <text class="card-name">{{ selectedFriend.name }}</text>
+            <text class="card-account">账号：{{ selectedFriend.accountNumber || selectedFriend.name }}</text>
+            <text class="card-dept">{{ selectedFriend.department || selectedFriend.desc || '未知部门' }}</text>
+          </view>
+        </view>
+        
+        <view class="card-actions">
+          <view class="action-btn primary" @click="handleSendMessage">
+            <text>发消息</text>
+          </view>
+          <view class="action-btn danger" @click="handleUnblockFriend" v-if="selectedFriend.isBlocked">
+            <text>取消拉黑</text>
+          </view>
+          <view class="action-btn danger" @click="handleBlockFriend" v-else>
+            <text>拉黑好友</text>
+          </view>
+          <view class="action-btn danger" @click="handleDeleteFriend">
+            <text>删除好友</text>
+          </view>
+        </view>
+      </view>
+    </u-popup>
   </view>
 </template>
 
 <script setup>
 import { ref, computed, nextTick } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
+import uPopup from 'uview-plus/components/u-popup/u-popup.vue'
 import uSearch from 'uview-plus/components/u-search/u-search.vue'
 import uAvatar from 'uview-plus/components/u-avatar/u-avatar.vue'
 import BottomNav from '@/components/BottomNav.vue'
 import request from '@/utils/request'
 import CONFIG from '@/config.js'
+import { getAvatarUrl } from '@/utils/avatar'
 
 const bottomNavRef = ref(null)
 const loading = ref(false)
 const friendItems = ref([])
 const unreadRequestCount = ref(0)
 
+const showFriendCard = ref(false)
+const selectedFriend = ref(null)
+
 const normalizeAvatar = (avatar) => {
-  if (avatar == null) return '/static/logo.png'
-  const text = String(avatar).trim()
-  if (!text || text === 'null' || text === 'undefined') return '/static/logo.png'
-  if (text.startsWith('http') || text.startsWith('data:')) return text
-  return CONFIG.IMG_BASE_URL + text.replace(/^\/+/, '')
+  return getAvatarUrl(avatar)
 }
 
 const normalizeRoleText = (role) => {
@@ -139,56 +164,47 @@ const mapFriendToUi = (item) => {
     name,
     desc,
     avatar: normalizeAvatar(item.avatar),
-    role: normalizeRoleText(item.role)
+    role: normalizeRoleText(item.role),
+    isBlocked: !!item.isBlocked
   }
 }
 
-const getAvatarText = (contact) => {
-  const name = contact.name || ''
-  if (name.includes('辅导员') || name.includes('老师')) return '师'
-  if (name.includes('教授')) return '授'
-  if (name.includes('同学') || name.includes('学生')) return '学'
-  return name.charAt(0) || 'U'
-}
-
-const getAvatarBgColor = (contact) => {
-  const text = getAvatarText(contact)
-  if (text === '学' || text === '师') return '#F56C6C' // Red-ish
-  if (text === '授') return '#F59E0B' // Orange-ish
-  if (text === '群' || text === '班') return '#8B5CF6' // Purple-ish
-  
-  const colors = ['#F56C6C', '#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#F97316']
-  const code = text.charCodeAt(0) || 0
-  return colors[code % colors.length]
-}
+const flatContacts = computed(() => {
+  const rawList = friendItems.value || []
+  const list = rawList.map(mapFriendToUi).filter(Boolean)
+  list.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hans-CN'))
+  return list
+})
 
 const contacts = computed(() => {
-  const list = (friendItems.value || []).map(mapFriendToUi).filter(Boolean)
-  list.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hans-CN'))
+  const list = flatContacts.value
 
-  const groupMap = new Map()
+  const groupMap = {}
   list.forEach((c) => {
     const letter = resolveLetter(c.name)
-    const arr = groupMap.get(letter) || []
-    arr.push(c)
-    groupMap.set(letter, arr)
+    if (!groupMap[letter]) {
+      groupMap[letter] = []
+    }
+    groupMap[letter].push(c)
   })
 
-  const letters = Array.from(groupMap.keys())
+  const letters = Object.keys(groupMap)
   letters.sort((a, b) => {
     if (a === '#') return 1
     if (b === '#') return -1
     return a.localeCompare(b)
   })
 
-  return letters.map((letter) => ({
+  const result = letters.map((letter) => ({
     letter,
-    list: groupMap.get(letter) || []
+    list: groupMap[letter]
   }))
+  
+  return result
 })
 
 const totalContacts = computed(() => {
-  return contacts.value.reduce((total, group) => total + (group?.list?.length || 0), 0)
+  return flatContacts.value.length
 })
 
 const goToSearch = () => {
@@ -237,6 +253,99 @@ const loadAllFriends = async () => {
   }
 }
 
+const openFriendCard = (contact) => {
+  selectedFriend.value = contact
+  showFriendCard.value = true
+}
+
+const closeFriendCard = () => {
+  showFriendCard.value = false
+  selectedFriend.value = null
+}
+
+const handleSendMessage = () => {
+  if (selectedFriend.value) {
+    const contact = selectedFriend.value
+    closeFriendCard()
+    openChat(contact)
+  }
+}
+
+const handleBlockFriend = () => {
+  if (!selectedFriend.value) return
+  const targetId = selectedFriend.value.uid
+  uni.showModal({
+    title: '提示',
+    content: '确定要将该好友加入黑名单吗？',
+    success: async (res) => {
+      if (res.confirm) {
+        try {
+          await request({
+            url: '/capi/friend/block',
+            method: 'POST',
+            data: { targetId }
+          })
+          uni.showToast({ title: '已拉黑', icon: 'success' })
+          closeFriendCard()
+          loadAllFriends()
+        } catch (e) {
+          uni.showToast({ title: '操作失败', icon: 'none' })
+        }
+      }
+    }
+  })
+}
+
+const handleUnblockFriend = () => {
+  if (!selectedFriend.value) return
+  const targetId = selectedFriend.value.uid
+  uni.showModal({
+    title: '提示',
+    content: '确定要将该好友移出黑名单吗？',
+    success: async (res) => {
+      if (res.confirm) {
+        try {
+          await request({
+            url: '/capi/friend/unblock',
+            method: 'POST',
+            data: { targetId }
+          })
+          uni.showToast({ title: '已取消拉黑', icon: 'success' })
+          closeFriendCard()
+          loadAllFriends()
+        } catch (e) {
+          uni.showToast({ title: '操作失败', icon: 'none' })
+        }
+      }
+    }
+  })
+}
+
+const handleDeleteFriend = () => {
+  if (!selectedFriend.value) return
+  const targetId = selectedFriend.value.uid
+  uni.showModal({
+    title: '警告',
+    content: '确定要删除该好友吗？删除后将同时清空聊天记录。',
+    success: async (res) => {
+      if (res.confirm) {
+        try {
+          await request({
+            url: '/capi/friend/remove',
+            method: 'POST',
+            data: { targetId }
+          })
+          uni.showToast({ title: '已删除', icon: 'success' })
+          closeFriendCard()
+          loadAllFriends()
+        } catch (e) {
+          uni.showToast({ title: '删除失败', icon: 'none' })
+        }
+      }
+    }
+  })
+}
+
 const openChat = (contact) => {
   const roomId = contact?.roomId
   if (!roomId) {
@@ -264,9 +373,12 @@ onShow(() => {
 .container {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   background-color: #F8F9FA;
-  position: relative;
   box-sizing: border-box;
 }
 
@@ -396,6 +508,7 @@ onShow(() => {
 
 .content-scroll {
   flex: 1;
+  height: 0;
   overflow-y: auto;
   padding-bottom: 60px;
 }
@@ -469,6 +582,69 @@ onShow(() => {
   text {
     font-size: 12px;
     color: #999;
+  }
+}
+
+.friend-card {
+  padding: 24px 20px;
+  background-color: #fff;
+  border-radius: 16px;
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 24px;
+    
+    .card-info {
+      margin-left: 16px;
+      display: flex;
+      flex-direction: column;
+      
+      .card-name {
+        font-size: 20px;
+        font-weight: bold;
+        color: #333;
+        margin-bottom: 6px;
+      }
+      
+      .card-account, .card-dept {
+        font-size: 14px;
+        color: #666;
+        margin-bottom: 4px;
+      }
+    }
+  }
+
+  .card-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+
+    .action-btn {
+      height: 48px;
+      border-radius: 8px;
+      background-color: #F5F6FA;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      
+      &:active {
+        background-color: #E8E9ED;
+      }
+
+      text {
+        font-size: 16px;
+        font-weight: 500;
+      }
+
+      &.primary text {
+        color: #333;
+      }
+
+      &.danger text {
+        color: #F56C6C;
+      }
+    }
   }
 }
 </style>

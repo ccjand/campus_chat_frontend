@@ -37,9 +37,7 @@
       <view v-if="userResults && userResults.length > 0" class="user-card" v-for="userResult in userResults" :key="userResult.userId">
         <view class="card-header">
           <view class="avatar-wrapper">
-            <view class="custom-avatar-text" :style="{ backgroundColor: getAvatarBgColor(userResult.name) }">
-              <text>{{ getAvatarText(userResult.name) }}</text>
-            </view>
+            <u-avatar :src="getAvatarUrl(userResult.avatar)" size="40" shape="circle"></u-avatar>
           </view>
           <view class="info">
             <text class="name">{{ userResult.name || '未知用户' }}</text>
@@ -74,28 +72,13 @@
 <script setup>
 import { ref } from 'vue'
 import request from '@/utils/request'
+import uAvatar from 'uview-plus/components/u-avatar/u-avatar.vue'
+import { getAvatarUrl } from '@/utils/avatar'
 
 const keyword = ref('')
 const loading = ref(false)
 const hasSearched = ref(false)
 const userResults = ref([])
-
-const getAvatarText = (name) => {
-  const text = name || ''
-  if (text.includes('辅导员') || text.includes('老师')) return '师'
-  if (text.includes('教授')) return '授'
-  if (text.includes('同学') || text.includes('学生')) return '学'
-  return text.charAt(0) || 'U'
-}
-
-const getAvatarBgColor = (name) => {
-  const text = getAvatarText(name)
-  if (text === '学' || text === '师') return '#F56C6C'
-  if (text === '授') return '#F59E0B'
-  const colors = ['#F56C6C', '#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#F97316']
-  const code = text.charCodeAt(0) || 0
-  return colors[code % colors.length]
-}
 
 const handleSearch = async () => {
   if (!keyword.value.trim()) {

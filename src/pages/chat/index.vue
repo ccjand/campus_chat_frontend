@@ -95,6 +95,7 @@ import dayjs from 'dayjs'
 import request from '@/utils/request'
 import imSocket from '@/utils/imSocket'
 import CONFIG from '@/config.js'
+import { getAvatarUrl } from '@/utils/avatar'
 
 const chatType = ref('single') // single or group
 const title = ref('')
@@ -186,11 +187,7 @@ const hideMessageLocally = (messageId) => {
 }
 
 const normalizeAvatar = (avatar) => {
-  if (avatar == null) return '/static/logo.png'
-  const text = String(avatar).trim()
-  if (!text || text === 'null' || text === 'undefined') return '/static/logo.png'
-  if (text.startsWith('http') || text.startsWith('data:')) return text
-  return CONFIG.IMG_BASE_URL + text.replace(/^\/+/, '')
+  return getAvatarUrl(avatar)
 }
 
 const formatSendTime = (sendTime) => {
