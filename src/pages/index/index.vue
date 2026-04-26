@@ -25,7 +25,7 @@
 
 <script setup>
 import { ref, computed, nextTick } from 'vue'
-import { onShow, onHide } from '@dcloudio/uni-app'
+import { onShow, onHide, onUnload } from '@dcloudio/uni-app'
 import uIcon from 'uview-plus/components/u-icon/u-icon.vue'
 import MessageList from '@/components/MessageList.vue'
 import BottomNav from '@/components/BottomNav.vue'
@@ -45,7 +45,9 @@ let removeWsListener = null
 let refreshRecentTimer = null
 
 const ACTIVE_ROOM_KEY = 'activeChatRoomId'
+const EVENT_REFRESH_RECENT = 'chat:refresh_recent'
 const processedMsgIds = new Set()
+let removeRecentRefreshListener = null
 
 const totalUnread = computed(() => {
   const list = Array.isArray(messages.value) ? messages.value : []
@@ -105,10 +107,22 @@ const mapRecentContactToUi = (item) => {
 
 const loadRecentContacts = async () => {
   try {
-    const list = await request({
-      url: '/capi/contact/list',
-      method: 'GET'
-    })
+    const [list, friendList] = await Promise.all([
+      request({
+        url: '/capi/contact/list',
+        method: 'GET'
+      }),
+      request({
+        url: '/capi/friend/list',
+        method: 'GET'
+      }).catch(() => [])
+    ])
+    const friendRoomSet = new Set(
+      (Array.isArray(friendList) ? friendList : [])
+        .map((f) => f?.roomId)
+        .filter((id) => id != null)
+        .map((id) => String(id))
+    )
     
     // The backend now returns a fully populated ContactVO list!
     // No more N+1 requests, no more manual mapping of friends and messages.
@@ -117,6 +131,9 @@ const loadRecentContacts = async () => {
       if (roomId == null) return null
       
       const messageType = item.type === 2 ? 'group' : 'single'
+      if (messageType === 'single' && !friendRoomSet.has(String(roomId))) {
+        return null
+      }
       
       return {
         id: roomId,
@@ -248,6 +265,13 @@ const handleQuickAction = (type) => {
 
 onShow(() => {
   loadRecentContacts()
+  if (typeof removeRecentRefreshListener !== 'function') {
+    const handler = () => {
+      loadRecentContacts()
+    }
+    uni.$on(EVENT_REFRESH_RECENT, handler)
+    removeRecentRefreshListener = () => uni.$off(EVENT_REFRESH_RECENT, handler)
+  }
   if (typeof removeWsListener !== 'function') {
     removeWsListener = imSocket.onMessage(handleWsPayload)
   }
@@ -258,6 +282,11 @@ onHide(() => {
   removeWsListener = null
   if (refreshRecentTimer) clearTimeout(refreshRecentTimer)
   refreshRecentTimer = null
+})
+
+onUnload(() => {
+  if (typeof removeRecentRefreshListener === 'function') removeRecentRefreshListener()
+  removeRecentRefreshListener = null
 })
 </script>
 

@@ -53,21 +53,6 @@
           <u-icon name="arrow-right" color="#ccc" size="14"></u-icon>
         </view>
 
-        <view class="menu-item" @click="handleNavigate('blacklist')">
-          <view class="item-left">
-            <u-icon name="minus-circle-fill" color="#E75D5D" size="22"></u-icon>
-            <text class="item-title">黑名单管理</text>
-          </view>
-          <u-icon name="arrow-right" color="#ccc" size="14"></u-icon>
-        </view>
-
-        <view class="menu-item" @click="handleNavigate('notification')">
-          <view class="item-left">
-            <u-icon name="bell-fill" color="#A98A3C" size="22"></u-icon>
-            <text class="item-title">通知设置</text>
-          </view>
-          <u-icon name="arrow-right" color="#ccc" size="14"></u-icon>
-        </view>
       </view>
 
       <!-- Logout Button -->
@@ -129,10 +114,6 @@ const handleNavigate = (path) => {
     uni.navigateTo({ url: '/pages/my/info/index' })
   } else if (path === 'password') {
     uni.navigateTo({ url: '/pages/my/password/index' })
-  } else if (path === 'blacklist') {
-    uni.navigateTo({ url: '/pages/my/blacklist/index' })
-  } else if (path === 'notification') {
-    uni.navigateTo({ url: '/pages/my/notification/index' })
   }
 }
 

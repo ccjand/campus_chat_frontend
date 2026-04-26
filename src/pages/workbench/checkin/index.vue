@@ -186,13 +186,10 @@
       </view>
     </u-modal>
 
-    <u-modal :show="showTeacherQrModal" title="签到二维码" :show-cancel-button="true" @confirm="copyTeacherQrContent" @cancel="closeTeacherQrModal">
+    <u-modal :show="showTeacherQrModal" title="签到二维码" :show-confirm-button="false" :show-cancel-button="true" cancel-text="关闭" @cancel="closeTeacherQrModal">
       <view class="modal-content">
         <view class="teacher-qr" v-if="teacherQrImageBase64">
           <image class="qr-image" :src="teacherQrImageBase64" mode="aspectFit"></image>
-        </view>
-        <view class="teacher-code-sub" v-if="teacherQrExpireText">
-          <text class="sub-text">{{ teacherQrExpireText }}</text>
         </view>
       </view>
     </u-modal>
@@ -597,8 +594,9 @@ const requestLocation = () => {
           resolve(lastLocation.value)
           return
         }
-        if (!isLocating.value && Date.now() - startedAt > 8000) {
+        if (Date.now() - startedAt > 8000) {
           clearInterval(timerId)
+          isLocating.value = false
           reject(new Error('location timeout'))
         }
       }, 120)
@@ -610,11 +608,18 @@ const requestLocation = () => {
     const isH5 = typeof window !== 'undefined' && typeof document !== 'undefined'
     const locType = isH5 ? 'wgs84' : 'gcj02'
     console.warn('【定位】调用 uni.getLocation', { type: locType, timeout: 8000 })
+    
+    let timer = setTimeout(() => {
+      isLocating.value = false
+      reject(new Error('location timeout'))
+    }, 8000)
+
     uni.getLocation({
       type: locType,
       isHighAccuracy: true,
       timeout: 8000,
       success: (res) => {
+        clearTimeout(timer)
         const normalized = isH5 ? normalizeLocationToGcj02(res) : res
         lastLocation.value = normalized
         lastLocationAt.value = Date.now()
@@ -628,6 +633,7 @@ const requestLocation = () => {
         resolve(normalized)
       },
       fail: (e) => {
+        clearTimeout(timer)
         isLocating.value = false
         console.error('【定位失败】uni.getLocation 调用失败', e)
         reject(e)
@@ -821,6 +827,8 @@ const confirmTeacherCreate = async () => {
     uni.showToast({ title: '已发起', icon: 'success' })
   } catch (e) {
     uni.hideLoading()
+    const msg = e?.message || '定位或创建失败'
+    uni.showToast({ title: msg, icon: 'none' })
   }
 }
 
@@ -901,16 +909,6 @@ const confirmTeacherCodeInput = async () => {
       return
     }
 
-    const radius = Number(teacherRadiusMeters.value)
-    if (!Number.isFinite(radius) || radius <= 0) {
-      uni.showToast({ title: '系统默认半径异常', icon: 'none' })
-      return
-    }
-
-    uni.showLoading({ title: '定位中...' })
-    const loc = await requestLocation()
-    uni.hideLoading()
-
     uni.showLoading({ title: '创建中...' })
     const createResp = await request({
       url: '/capi/checkin/teacher/session',
@@ -918,9 +916,9 @@ const confirmTeacherCodeInput = async () => {
       data: {
         courseId: teacherSelectedCourseId.value,
         title: teacherTitle.value || null,
-        centerLatitude: loc.latitude,
-        centerLongitude: loc.longitude,
-        radiusMeters: radius,
+        centerLatitude: null,
+        centerLongitude: null,
+        radiusMeters: null,
         durationMinutes: duration,
         classIds: teacherSelectedClassIds.value
       }
@@ -962,6 +960,8 @@ const confirmTeacherCodeInput = async () => {
     }
   } catch (e) {
     uni.hideLoading()
+    const msg = e?.message || '定位或创建失败'
+    uni.showToast({ title: msg, icon: 'none' })
   }
 }
 
@@ -1006,6 +1006,10 @@ const selectStudentSession = async (s) => {
     openStudentCodeModal()
     return
   }
+  if (s.centerLatitude == null) {
+    uni.showToast({ title: '该签到不支持定位签到，请扫码', icon: 'none' })
+    return
+  }
   try {
     uni.showLoading({ title: '定位中...' })
     const loc = await requestLocation()
@@ -1030,6 +1034,11 @@ const selectStudentSession = async (s) => {
     }, 800)
   } catch (e) {
     uni.hideLoading()
+    let msg = e?.message || '定位或签到失败'
+    if (msg.includes('超出围栏') || msg.includes('距离签到点')) {
+      msg = '不在签到范围内'
+    }
+    uni.showToast({ title: msg, icon: 'none' })
   }
 }
 
@@ -1104,20 +1113,11 @@ const handleTeacherQr = async () => {
       uni.showToast({ title: '请选择班级', icon: 'none' })
       return
     }
-    const radius = Number(teacherRadiusMeters.value)
     const duration = Number(teacherDurationMinutes.value)
-    if (!Number.isFinite(radius) || radius <= 0) {
-      uni.showToast({ title: '请输入正确的半径', icon: 'none' })
-      return
-    }
     if (!Number.isFinite(duration) || duration <= 0) {
       uni.showToast({ title: '请输入正确的有效分钟', icon: 'none' })
       return
     }
-
-    uni.showLoading({ title: '定位中...' })
-    const loc = await requestLocation()
-    uni.hideLoading()
 
     uni.showLoading({ title: '创建中...' })
     const created = await request({
@@ -1126,9 +1126,9 @@ const handleTeacherQr = async () => {
       data: {
         courseId: teacherSelectedCourseId.value,
         title: teacherTitle.value || null,
-        centerLatitude: loc.latitude,
-        centerLongitude: loc.longitude,
-        radiusMeters: radius,
+        centerLatitude: null,
+        centerLongitude: null,
+        radiusMeters: null,
         durationMinutes: duration,
         classIds: teacherSelectedClassIds.value
       }
@@ -1152,6 +1152,8 @@ const handleTeacherQr = async () => {
     }, 10 * 1000)
   } catch (e) {
     uni.hideLoading()
+    const msg = e?.message || '定位或创建失败'
+    uni.showToast({ title: msg, icon: 'none' })
   }
 }
 
@@ -1167,7 +1169,7 @@ const refreshTeacherQr = async () => {
     })
     teacherQrContent.value = resp?.content ? String(resp.content) : ''
     teacherQrImageBase64.value = resp?.imageBase64 ? String(resp.imageBase64) : ''
-    teacherQrExpireAt.value = resp?.expireAt ? Number(resp.expireAt) : 0
+    teacherQrExpireAt.value = resp?.expireAt ? Number(resp.expireAt) * 1000 : 0
     try {
       if (teacherQrContent.value) {
         await uni.setClipboardData({ data: String(teacherQrContent.value) })

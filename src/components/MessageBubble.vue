@@ -10,7 +10,7 @@
         <text v-if="!isOwn && showName" class="sender-name">{{ message.sender.name }}</text>
         
         <view class="bubble-container">
-          <view v-if="message.type === 'text'" class="text-bubble" :class="{ 'own-bubble': isOwn }" @longpress.stop="handleLongPress">
+          <view v-if="message.type === 'text'" class="text-bubble" :class="{ 'own-bubble': isOwn }">
             <view v-if="message.reply && message.reply.text" class="reply-snippet" :class="{ 'own-reply': isOwn }">
               <text class="reply-user">{{ message.reply.username || '回复' }}</text>
               <text class="reply-text">{{ message.reply.text }}</text>
@@ -18,11 +18,40 @@
             <text class="message-text" :class="{ 'own-text': isOwn }">{{ message.content }}</text>
           </view>
           
-          <view v-else-if="message.type === 'card' || message.type === 'image' || message.type === 'file'" class="card-bubble" @longpress.stop="handleLongPress">
+          <view v-else-if="message.type === 'card' || message.type === 'image' || message.type === 'file'" class="card-bubble">
             <attachment-card 
               :type="message.attachment.type" 
               :data="message.attachment"
             ></attachment-card>
+          </view>
+
+          <view v-else-if="message.type === 'video'" class="video-bubble" @click="handleVideoClick">
+            <view
+              v-if="!videoPlayingMap[message.id]"
+              class="video-poster-wrap"
+              @click="playVideo(message.id)"
+            >
+              <image
+                v-if="videoPosterUrl(message)"
+                class="video-poster"
+                :src="videoPosterUrl(message)"
+                mode="aspectFill"
+                @error="onPosterError(message.id)"
+              ></image>
+              <view class="play-btn">
+                <u-icon name="play-right-fill" size="40" color="#fff"></u-icon>
+              </view>
+            </view>
+            <video
+              v-if="videoPlayingMap[message.id]"
+              class="video-player"
+              :src="getFileUrl(message.attachment?.url)"
+              controls
+              object-fit="cover"
+              :autoplay="true"
+              :loop="false"
+              :muted="false"
+            ></video>
           </view>
         </view>
       </view>
@@ -41,10 +70,10 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, reactive } from 'vue'
 import uAvatar from 'uview-plus/components/u-avatar/u-avatar.vue'
 import AttachmentCard from './AttachmentCard.vue'
-import { getAvatarUrl } from '@/utils/avatar'
+import { getAvatarUrl, getFileUrl } from '@/utils/avatar'
 
 const props = defineProps({
   message: {
@@ -65,8 +94,6 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['longpress'])
-
 const myAvatarUrl = computed(() => {
   try {
     const cache = uni.getStorageSync('userInfo') || {}
@@ -76,12 +103,29 @@ const myAvatarUrl = computed(() => {
   }
 })
 
-const handleLongPress = (e) => {
-  const touch = Array.isArray(e?.touches) && e.touches.length > 0 ? e.touches[0] : null
-  const detail = e?.detail ?? {}
-  const x = detail?.x ?? touch?.clientX ?? touch?.pageX ?? 0
-  const y = detail?.y ?? touch?.clientY ?? touch?.pageY ?? 0
-  emit('longpress', { message: props.message, isOwn: props.isOwn, x, y })
+const videoPlayingMap = reactive({})
+
+const videoPosterUrl = (message) => {
+  const poster = message.attachment?.poster
+  if (poster) {
+    return getFileUrl(poster)
+  }
+  // 没有封面时返回空字符串，让 image 组件显示失败，配合 @error 显示黑色背景
+  return ''
+}
+
+const posterErrorMap = reactive({})
+
+const onPosterError = (messageId) => {
+  posterErrorMap[messageId] = true
+}
+
+const playVideo = (messageId) => {
+  videoPlayingMap[messageId] = true
+}
+
+const handleVideoClick = () => {
+  // 阻止冒泡，避免触发其他点击事件
 }
 </script>
 
@@ -115,6 +159,21 @@ const handleLongPress = (e) => {
   
   .avatar-wrapper {
     flex-shrink: 0;
+    
+    .default-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      
+      .default-avatar-text {
+        color: #fff;
+        font-size: 16px;
+        font-weight: 500;
+      }
+    }
     
     .custom-avatar-text {
       width: 40px;
@@ -224,7 +283,55 @@ const handleLongPress = (e) => {
     }
     
     .card-bubble {
-      // Cards handle their own styling
+      max-width: 100%;
+    }
+
+    .video-bubble {
+      width: 210px;
+      max-width: 100%;
+      border-radius: 10px;
+      overflow: hidden;
+      background-color: #000;
+      position: relative;
+
+      .video-poster-wrap {
+        width: 210px;
+        height: 280px;
+        background-color: #000;
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .video-poster {
+        width: 210px;
+        height: 280px;
+        display: block;
+        object-fit: cover;
+      }
+
+      .play-btn {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        background-color: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2;
+      }
+
+      .video-player {
+        width: 210px;
+        height: 280px;
+        display: block;
+        background-color: #000;
+      }
     }
   }
 

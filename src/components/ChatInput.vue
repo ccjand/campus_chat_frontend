@@ -9,6 +9,11 @@
     </view>
 
     <view class="input-row">
+      <view class="left-icons">
+        <view class="icon-btn" @click="handlePickMedia">
+          <u-icon name="plus-circle" size="24" color="#667085"></u-icon>
+        </view>
+      </view>
       <view class="input-container">
         <textarea
           class="input-field" 
@@ -48,7 +53,7 @@ const props = defineProps({
 })
 
 const inputValue = ref('')
-const emit = defineEmits(['send', 'clear-reply', 'height-change'])
+const emit = defineEmits(['send', 'clear-reply', 'height-change', 'pick-media'])
 const canSend = computed(() => Boolean(inputValue.value && inputValue.value.trim()))
 const rootStyle = computed(() => ({
   bottom: `${Math.max(0, Number(props.bottomOffset) || 0)}px`
@@ -66,6 +71,10 @@ const handleSend = () => {
 
 const handleClearReply = () => {
   emit('clear-reply')
+}
+
+const handlePickMedia = () => {
+  emit('pick-media')
 }
 
 const measureHeightAndEmit = () => {
@@ -166,21 +175,21 @@ watch(
 
   .input-row {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     padding: 8px 15px; // Reduced vertical padding
     background-color: #fff;
   }
   
   .left-icons, .right-icons {
     display: flex;
-    align-items: flex-end;
-    height: 100%; // Ensure vertical alignment
+    align-items: center;
     
     .icon-btn {
       padding: 0 5px; // Adjusted padding
       display: flex;
       align-items: center;
       justify-content: center;
+      height: 36px;
     }
   }
   
@@ -219,7 +228,6 @@ watch(
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    margin-bottom: 2px;
   }
 
   .send-text {

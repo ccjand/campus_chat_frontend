@@ -133,9 +133,11 @@ const normalizeRoleText = (role) => {
   const num = typeof role === 'number' ? role : Number(role)
   if (!Number.isNaN(num)) {
     if (num === 0) return '管理员'
+    if (num === 1) return '学生'
     if (num === 2) return '教师'
     if (num === 3) return '辅导员'
-    return '学生'
+    if (num === 4) return '院长'
+    return '未知角色'
   }
   return role == null ? '' : String(role)
 }
@@ -149,14 +151,11 @@ const resolveLetter = (name) => {
 
 const mapFriendToUi = (item) => {
   if (!item) return null
-  const name = item.fullName || item.accountNumber || ''
-  
-  // Fake desc for UI
-  let desc = '学生'
-  if (name.includes('辅导员')) desc = '学生工作处 · 辅导员'
-  else if (name.includes('教授')) desc = '计算机学院 · 教师'
-  else if (name.includes('同学')) desc = '计算机学院 · 软件工程'
-  else desc = item.department || '学院 · 专业'
+  const name = item.fullName || item.nickName || item.accountNumber || (item.uid != null ? `用户${item.uid}` : '未知用户')
+  const dept = item.department ? String(item.department) : ''
+  const major = item.major ? String(item.major) : ''
+  const roleText = normalizeRoleText(item.role)
+  const desc = [dept, major || roleText].filter(Boolean).join(' · ')
 
   return {
     uid: item.uid,
@@ -164,6 +163,8 @@ const mapFriendToUi = (item) => {
     name,
     desc,
     avatar: normalizeAvatar(item.avatar),
+    accountNumber: item.accountNumber || '',
+    department: dept || '',
     role: normalizeRoleText(item.role),
     isBlocked: !!item.isBlocked
   }
@@ -246,6 +247,15 @@ const loadAllFriends = async () => {
       method: 'GET'
     })
     friendItems.value = Array.isArray(page) ? page : []
+    console.log('[contacts] friend/list result', {
+      total: friendItems.value.length,
+      items: friendItems.value.map((it) => ({
+        uid: it?.uid,
+        role: it?.role,
+        fullName: it?.fullName,
+        accountNumber: it?.accountNumber
+      }))
+    })
   } catch (e) {
     friendItems.value = []
   } finally {
@@ -274,6 +284,8 @@ const handleSendMessage = () => {
 const handleBlockFriend = () => {
   if (!selectedFriend.value) return
   const targetId = selectedFriend.value.uid
+  // 先关闭好友卡片，避免确认弹窗被卡片层级遮挡
+  closeFriendCard()
   uni.showModal({
     title: '提示',
     content: '确定要将该好友加入黑名单吗？',
@@ -286,7 +298,6 @@ const handleBlockFriend = () => {
             data: { targetId }
           })
           uni.showToast({ title: '已拉黑', icon: 'success' })
-          closeFriendCard()
           loadAllFriends()
         } catch (e) {
           uni.showToast({ title: '操作失败', icon: 'none' })
@@ -299,6 +310,8 @@ const handleBlockFriend = () => {
 const handleUnblockFriend = () => {
   if (!selectedFriend.value) return
   const targetId = selectedFriend.value.uid
+  // 先关闭好友卡片，避免确认弹窗被卡片层级遮挡
+  closeFriendCard()
   uni.showModal({
     title: '提示',
     content: '确定要将该好友移出黑名单吗？',
@@ -311,7 +324,6 @@ const handleUnblockFriend = () => {
             data: { targetId }
           })
           uni.showToast({ title: '已取消拉黑', icon: 'success' })
-          closeFriendCard()
           loadAllFriends()
         } catch (e) {
           uni.showToast({ title: '操作失败', icon: 'none' })
@@ -324,6 +336,8 @@ const handleUnblockFriend = () => {
 const handleDeleteFriend = () => {
   if (!selectedFriend.value) return
   const targetId = selectedFriend.value.uid
+  // 先关闭好友卡片，避免确认弹窗被卡片层级遮挡
+  closeFriendCard()
   uni.showModal({
     title: '警告',
     content: '确定要删除该好友吗？删除后将同时清空聊天记录。',
@@ -336,7 +350,6 @@ const handleDeleteFriend = () => {
             data: { targetId }
           })
           uni.showToast({ title: '已删除', icon: 'success' })
-          closeFriendCard()
           loadAllFriends()
         } catch (e) {
           uni.showToast({ title: '删除失败', icon: 'none' })
@@ -353,8 +366,9 @@ const openChat = (contact) => {
     return
   }
   const title = contact?.name ? encodeURIComponent(String(contact.name)) : ''
+  const avatar = contact?.avatar ? encodeURIComponent(String(contact.avatar)) : ''
   uni.navigateTo({
-    url: `/pages/chat/index?roomId=${encodeURIComponent(String(roomId))}&type=single&title=${title}&receiverId=${contact.uid}`
+    url: `/pages/chat/index?roomId=${encodeURIComponent(String(roomId))}&type=single&title=${title}&avatar=${avatar}&receiverId=${contact.uid}`
   })
 }
 
@@ -373,11 +387,7 @@ onShow(() => {
 .container {
   display: flex;
   flex-direction: column;
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  height: 100vh;
   background-color: #F8F9FA;
   box-sizing: border-box;
 }
@@ -507,9 +517,7 @@ onShow(() => {
 }
 
 .content-scroll {
-  flex: 1;
-  height: 0;
-  overflow-y: auto;
+  height: calc(100vh - var(--status-bar-height) - 44px - 56px - 50px - env(safe-area-inset-bottom));
   padding-bottom: 60px;
 }
 
@@ -591,11 +599,11 @@ onShow(() => {
   border-radius: 16px;
 
   .card-header {
-    display: flex;
-    align-items: center;
-    margin-bottom: 24px;
-    
-    .card-info {
+      display: flex;
+      align-items: center;
+      margin-bottom: 24px;
+      
+      .card-info {
       margin-left: 16px;
       display: flex;
       flex-direction: column;

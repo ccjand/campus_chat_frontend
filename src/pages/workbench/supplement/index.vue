@@ -37,21 +37,6 @@
         ></textarea>
       </view>
       
-      <!-- Attachment -->
-      <view class="form-card attachment-card">
-        <text class="label">附件上传</text>
-        <view class="upload-btns-container">
-          <view class="upload-btn file-btn" @click="handleUploadFile">
-            <u-icon name="file-text-fill" size="24" color="#fff"></u-icon>
-            <text class="btn-text">上传文件</text>
-          </view>
-          <view class="upload-btn image-btn" @click="handleUploadImage">
-            <u-icon name="photo-fill" size="24" color="#fff"></u-icon>
-            <text class="btn-text">上传图片</text>
-          </view>
-        </view>
-      </view>
-      
       <!-- Submit Button -->
       <view class="submit-btn-container">
         <u-button type="primary" text="提交申请" color="#007aff" @click="submit"></u-button>
@@ -203,20 +188,6 @@ const confirmClass = (e) => {
   showClassSelect.value = false
 }
 
-const handleUploadFile = () => {
-  uni.showToast({
-    title: '上传文件功能开发中',
-    icon: 'none'
-  })
-}
-
-const handleUploadImage = () => {
-  uni.showToast({
-    title: '上传图片功能开发中',
-    icon: 'none'
-  })
-}
-
 const submit = async () => {
   if (!selectedSessionId.value) {
     uni.showToast({
@@ -250,13 +221,7 @@ const submit = async () => {
       icon: 'success'
     })
     
-    selectedClass.value = ''
-    selectedSessionId.value = ''
-    reason.value = ''
-    
-    setTimeout(() => {
-      uni.navigateBack()
-    }, 1500)
+    // 不再执行 navigateBack，保留页面当前的状态和输入内容
   } catch (e) {
     uni.hideLoading()
   }
@@ -275,7 +240,7 @@ const submit = async () => {
       background-color: #fff;
       padding: 0 15px;
       
-      &.reason-card, &.attachment-card {
+      &.reason-card {
         padding: 15px;
         margin-top: 10px;
       }
@@ -321,44 +286,6 @@ const submit = async () => {
         height: 100px;
         font-size: 16px;
         line-height: 1.5;
-      }
-
-      .upload-btns-container {
-        display: flex;
-        justify-content: space-between;
-        margin-top: 10px;
-        
-        .upload-btn {
-          flex: 1;
-          height: 50px;
-          border-radius: 8px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin: 0 5px;
-          
-          &:first-child {
-            margin-left: 0;
-          }
-          
-          &:last-child {
-            margin-right: 0;
-          }
-          
-          .btn-text {
-            color: #fff;
-            font-size: 14px;
-            margin-left: 6px;
-          }
-          
-          &.file-btn {
-            background-color: #FF9800;
-          }
-          
-          &.image-btn {
-            background-color: #9C27B0;
-          }
-        }
       }
     }
     

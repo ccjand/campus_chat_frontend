@@ -48,7 +48,6 @@
               :is-own="item.sender === 'self' || (item.sender && String(item.sender.id) === String(currentUserId))"
               :show-avatar="true"
               :show-name="chatType === 'group'"
-              @longpress="openMessageMenu"
             ></message-bubble>
           </view>
         </template>
@@ -71,6 +70,7 @@
       :bottom-offset="keyboardOffset"
       @clear-reply="clearReplyDraft"
       @send="handleSendMessage"
+      @pick-media="handlePickMedia"
       @height-change="handleChatInputHeightChange"
     ></chat-input>
 
@@ -97,6 +97,8 @@ import imSocket from '@/utils/imSocket'
 import CONFIG from '@/config.js'
 import { getAvatarUrl } from '@/utils/avatar'
 
+const BASE_URL = CONFIG.API_BASE_URL
+
 const chatType = ref('single') // single or group
 const title = ref('')
 const memberCount = ref('')
@@ -110,6 +112,11 @@ const scrollIntoViewId = ref('')
 const currentUserId = ref(null)
 const roomId = ref(null)
 const receiverId = ref(null)
+const peerName = ref('')
+const peerAvatar = ref('')
+const currentUserName = ref('')
+const currentUserAvatar = ref('')
+const userProfileCache = ref({})
 let msgSeq = 0
 let removeWsListener = null
 let removeWsStatusListener = null
@@ -190,6 +197,106 @@ const normalizeAvatar = (avatar) => {
   return getAvatarUrl(avatar)
 }
 
+const upsertUserProfileCache = (uid, name, avatar) => {
+  if (uid == null) return
+  const key = String(uid)
+  if (!key) return
+  const next = { ...(userProfileCache.value || {}) }
+  const prev = next[key] || {}
+  const mergedName = name != null && String(name).trim() ? String(name).trim() : (prev.name || '')
+  const mergedAvatar = avatar != null && String(avatar).trim() ? String(avatar).trim() : (prev.avatar || '')
+  next[key] = {
+    uid: key,
+    name: mergedName,
+    avatar: mergedAvatar
+  }
+  userProfileCache.value = next
+}
+
+const getCachedUserProfile = (uid) => {
+  if (uid == null) return null
+  const key = String(uid)
+  const hit = userProfileCache.value?.[key]
+  return hit || null
+}
+
+const refreshGroupSenderProfileFromCache = () => {
+  if (chatType.value !== 'group') return
+  const selfUid = currentUserId.value != null ? String(currentUserId.value) : ''
+  messages.value = (messages.value || []).map((m) => {
+    if (!m || m.type === 'recall') return m
+    const senderId = m?.sender?.id != null ? String(m.sender.id) : ''
+    if (!senderId || senderId === selfUid) return m
+    const cached = getCachedUserProfile(senderId)
+    if (!cached) return m
+    const nameNow = m?.sender?.name != null ? String(m.sender.name) : ''
+    const shouldUseCachedName = !nameNow || nameNow === '未知用户' || /^用户\d+$/.test(nameNow)
+    const nextName = shouldUseCachedName && cached.name ? cached.name : nameNow
+    const nextAvatar = cached.avatar ? normalizeAvatar(cached.avatar) : m?.sender?.avatar
+    if (nextName === nameNow && nextAvatar === m?.sender?.avatar) return m
+    return {
+      ...m,
+      sender: {
+        ...(m.sender || {}),
+        name: nextName || nameNow,
+        avatar: nextAvatar
+      }
+    }
+  })
+}
+
+const normalizeProfileUser = (u) => {
+  if (!u) return null
+  const uid = u.uid ?? u.userId ?? u.id
+  if (uid == null) return null
+  const name = u.name || u.fullName || u.nickName || u.nickname || u.accountNumber || ''
+  const avatar = u.avatar || ''
+  return { uid: String(uid), name: String(name || ''), avatar: String(avatar || '') }
+}
+
+const hydrateGroupUserProfileCache = async () => {
+  if (chatType.value !== 'group') return
+  try {
+    const [friendList, candidates] = await Promise.all([
+      request({
+        url: '/capi/friend/list',
+        method: 'GET'
+      }).catch(() => []),
+      request({
+        url: '/capi/group/create/candidates',
+        method: 'GET'
+      }).catch(() => null)
+    ])
+
+    ;(Array.isArray(friendList) ? friendList : []).forEach((f) => {
+      const p = normalizeProfileUser(f)
+      if (!p) return
+      upsertUserProfileCache(p.uid, p.name, p.avatar)
+    })
+
+    const friends = Array.isArray(candidates?.friends) ? candidates.friends : []
+    friends.forEach((u) => {
+      const p = normalizeProfileUser(u)
+      if (!p) return
+      upsertUserProfileCache(p.uid, p.name, p.avatar)
+    })
+
+    const classes = Array.isArray(candidates?.classes) ? candidates.classes : []
+    classes.forEach((cls) => {
+      const users = Array.isArray(cls?.users) ? cls.users : []
+      users.forEach((u) => {
+        const p = normalizeProfileUser(u)
+        if (!p) return
+        upsertUserProfileCache(p.uid, p.name, p.avatar)
+      })
+    })
+
+    refreshGroupSenderProfileFromCache()
+  } catch (e) {
+    console.warn('hydrateGroupUserProfileCache failed:', e?.message || e)
+  }
+}
+
 const formatSendTime = (sendTime) => {
   if (!sendTime) return ''
   if (typeof sendTime === 'string') return sendTime.replace('T', ' ').slice(0, 16)
@@ -199,6 +306,66 @@ const formatSendTime = (sendTime) => {
     return `${y}-${pad(m)}-${pad(d)} ${pad(hh)}:${pad(mm)}`
   }
   return String(sendTime)
+}
+
+const formatFileSize = (size) => {
+  const n = Number(size)
+  if (!Number.isFinite(n) || n <= 0) return ''
+  if (n < 1024) return `${n}B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)}MB`
+  return `${(n / (1024 * 1024 * 1024)).toFixed(1)}GB`
+}
+
+const refreshPeerSenderProfile = () => {
+  if (chatType.value !== 'single') return
+  const uidText = currentUserId.value != null ? String(currentUserId.value) : ''
+  const fallbackName = peerName.value || title.value || ''
+  const fallbackAvatar = normalizeAvatar(peerAvatar.value)
+  messages.value = (messages.value || []).map((m) => {
+    if (!m || m.type === 'recall') return m
+    const senderId = m?.sender?.id != null ? String(m.sender.id) : ''
+    const isSelf = senderId && uidText && senderId === uidText
+    if (isSelf) return m
+    return {
+      ...m,
+      sender: {
+        ...(m.sender || {}),
+        name: fallbackName,
+        avatar: fallbackAvatar
+      }
+    }
+  })
+}
+
+const hydrateSingleChatProfile = async () => {
+  if (chatType.value !== 'single' || !roomId.value) return
+  const ridText = String(roomId.value)
+  try {
+    const friendList = await request({
+      url: '/capi/friend/list',
+      method: 'GET'
+    })
+    const list = Array.isArray(friendList) ? friendList : []
+    const matched =
+      list.find((f) => f?.roomId != null && String(f.roomId) === ridText) ||
+      list.find((f) => receiverId.value != null && f?.uid != null && String(f.uid) === String(receiverId.value))
+    if (!matched) return
+    const realName = matched.fullName || matched.nickName || matched.accountNumber || ''
+    if (realName) {
+      title.value = String(realName)
+      peerName.value = String(realName)
+    }
+    if (matched.avatar) {
+      peerAvatar.value = String(matched.avatar)
+    }
+    if (!receiverId.value && matched.uid != null) {
+      receiverId.value = String(matched.uid)
+    }
+    refreshPeerSenderProfile()
+  } catch (e) {
+    console.warn('hydrateSingleChatProfile failed:', e?.message || e)
+  }
 }
 
 const toMs = (sendTime) => {
@@ -244,26 +411,129 @@ const toMsStrict = (sendTime) => {
   return null
 }
 
+const normalizeExtInfo = (extInfo) => {
+  if (!extInfo) return {}
+  if (typeof extInfo === 'string') {
+    try {
+      const parsed = JSON.parse(extInfo)
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch (e) {
+      return {}
+    }
+  }
+  return typeof extInfo === 'object' ? extInfo : {}
+}
+
+const pickFirstNonEmpty = (...vals) => {
+  for (const v of vals) {
+    if (v == null) continue
+    const text = String(v).trim()
+    if (text) return text
+  }
+  return ''
+}
+
+const extractSenderProfileFromExtInfo = (extInfo) => {
+  const senderObj = extInfo?.sender && typeof extInfo.sender === 'object' ? extInfo.sender : {}
+  const profileObj = extInfo?.profile && typeof extInfo.profile === 'object' ? extInfo.profile : {}
+
+  const name = pickFirstNonEmpty(
+    extInfo?.senderName,
+    extInfo?.fromName,
+    extInfo?.name,
+    extInfo?.nickname,
+    extInfo?.nickName,
+    extInfo?.sender_name,
+    extInfo?.from_name,
+    senderObj?.name,
+    senderObj?.nickname,
+    senderObj?.nickName,
+    profileObj?.name,
+    profileObj?.nickname
+  )
+
+  const avatar = pickFirstNonEmpty(
+    extInfo?.senderAvatar,
+    extInfo?.fromAvatar,
+    extInfo?.avatar,
+    extInfo?.sender_avatar,
+    extInfo?.from_avatar,
+    senderObj?.avatar,
+    profileObj?.avatar
+  )
+
+  return { name, avatar }
+}
+
 const mapChatMessageRespToUi = (msg) => {
   if (!msg?.id) return null
   const clientMsgId = msg?.clientSeq != null ? String(msg.clientSeq) : (msg?.clientMsgId != null ? String(msg.clientMsgId) : null)
+  const extInfo = normalizeExtInfo(msg.extInfo)
+  const mediaType = extInfo?.mediaType != null ? String(extInfo.mediaType).toLowerCase() : ''
 
   const fromUidText = msg.fromUid != null ? String(msg.fromUid) : ''
   const isSelf = fromUidText && String(fromUidText) === String(currentUserId.value)
 
   // Use the title (friend's name) as the fallback for sender name if it's not self
+  const extSender = extractSenderProfileFromExtInfo(extInfo)
+  const rawSenderName = pickFirstNonEmpty(msg?.fromName, msg?.senderName, extSender.name)
+  const rawSenderAvatar = pickFirstNonEmpty(msg?.fromAvatar, msg?.senderAvatar, extSender.avatar)
+  const cachedSender = chatType.value === 'group' && fromUidText ? getCachedUserProfile(fromUidText) : null
+  const senderName = (() => {
+    if (isSelf) return currentUserName.value || '我'
+    if (chatType.value === 'single') return peerName.value || title.value || '对方'
+    if (rawSenderName) return String(rawSenderName)
+    if (cachedSender?.name) return String(cachedSender.name)
+    return fromUidText ? `用户${fromUidText}` : '未知用户'
+  })()
+  const senderAvatar = (() => {
+    if (isSelf) return normalizeAvatar(currentUserAvatar.value || null)
+    if (chatType.value === 'single') return normalizeAvatar(peerAvatar.value || null)
+    if (cachedSender?.avatar) return normalizeAvatar(cachedSender.avatar || null)
+    return normalizeAvatar(rawSenderAvatar || null)
+  })()
   const sender = {
     id: fromUidText,
-    name: isSelf ? '我' : title.value,
-    avatar: normalizeAvatar(null) // Can be extended to use cached avatars later
+    name: senderName,
+    avatar: senderAvatar
   }
 
   let type = 'text'
   if (msg.type === 6 || msg.status === 1) type = 'recall'
-  else if (msg.type === 2) type = 'image'
+  else if (msg.type === 2 || mediaType === 'image') type = 'image'
+  else if (msg.type === 3 && mediaType === 'video') type = 'video'
   else if (msg.type === 3) type = 'file'
 
-  const extInfo = msg.extInfo || {}
+  // 优先使用 extInfo.url（预签名URL），其次是 msg.content，最后是 filePath
+  const mediaUrl = extInfo.url || msg.content || extInfo.fileUrl || extInfo.filePath || ''
+  const attachment = (() => {
+    if (type === 'image') {
+      return {
+        type: 'image',
+        url: mediaUrl
+      }
+    }
+    if (type === 'video') {
+      return {
+        type: 'video',
+        url: mediaUrl,
+        poster: extInfo.poster || extInfo.coverUrl || extInfo.posterUrl || '',
+        duration: extInfo.duration != null ? Number(extInfo.duration) : undefined,
+        fileSize: formatFileSize(extInfo.fileSize),
+        title: extInfo.fileName || '视频'
+      }
+    }
+    if (type === 'file') {
+      return {
+        type: 'file',
+        url: mediaUrl,
+        fileSize: formatFileSize(extInfo.fileSize),
+        title: extInfo.fileName || '文件'
+      }
+    }
+    return null
+  })()
+
   const replyMessageId = extInfo.replyMessageId
 
   const reply = (() => {
@@ -289,6 +559,7 @@ const mapChatMessageRespToUi = (msg) => {
     id: msg.id,
     type,
     content: displayContent,
+    attachment,
     sender,
     timestamp: formatSendTime(msg.createTime || msg.sendTime) || '刚刚',
     tsMs: toMs(msg.createTime || msg.sendTime),
@@ -446,6 +717,209 @@ const buildLocalPendingTextMessage = ({ content, reply, clientMsgId }) => {
   }
 }
 
+const buildLocalPendingMediaMessage = ({ mediaKind, localUrl, clientMsgId, reply, fileName, fileSize, duration, width, height }) => {
+  const now = Date.now()
+  let attachment, messageType, content
+  
+  if (mediaKind === 'image') {
+    attachment = { type: 'image', url: localUrl }
+    messageType = 'image'
+    content = '[图片]'
+  } else if (mediaKind === 'video') {
+    attachment = {
+      type: 'video',
+      url: localUrl,
+      poster: localUrl, // 使用视频URL作为临时封面
+      title: fileName || '视频',
+      fileSize: formatFileSize(fileSize),
+      duration: duration != null ? Number(duration) : undefined,
+      width: width != null ? Number(width) : undefined,
+      height: height != null ? Number(height) : undefined
+    }
+    messageType = 'video'
+    content = '[视频]'
+  } else if (mediaKind === 'file') {
+    attachment = {
+      type: 'file',
+      url: localUrl,
+      title: fileName || '文件',
+      fileSize: formatFileSize(fileSize)
+    }
+    messageType = 'file'
+    content = '[文件]'
+  }
+
+  return {
+    id: `local-${clientMsgId}`,
+    type: messageType,
+    content: content,
+    attachment,
+    sender: { id: currentUserId.value != null ? String(currentUserId.value) : '', name: '我', avatar: null },
+    timestamp: dayjs(now).format('YYYY-MM-DD HH:mm'),
+    tsMs: now,
+    sendTimeRaw: now,
+    isRead: true,
+    reply: reply
+      ? {
+          id: reply.id,
+          username: reply.username,
+          text: reply.text
+        }
+      : null,
+    clientMsgId: String(clientMsgId),
+    pending: true
+  }
+}
+
+const uploadChatMedia = ({ filePath }) => {
+  return new Promise((resolve, reject) => {
+    const token = uni.getStorageSync('token')
+    const tokenStr = token == null ? '' : String(token)
+    uni.uploadFile({
+      url: `${BASE_URL}/capi/file/upload`,
+      filePath: String(filePath),
+      name: 'file',
+      header: {
+        Authorization: tokenStr ? (tokenStr.toLowerCase().startsWith('bearer ') ? tokenStr : `Bearer ${tokenStr}`) : '',
+        terminalType: String(CONFIG.TERMINAL_TYPE || 4)
+      },
+      success: (uploadRes) => {
+        try {
+          const body = typeof uploadRes?.data === 'string' ? JSON.parse(uploadRes.data) : uploadRes?.data
+          if (body?.code !== 0 || !body?.data) {
+            reject(new Error(body?.msg || '上传失败'))
+            return
+          }
+          // 优先使用预签名 URL (body.data.url)，如果没有则使用 filePath
+          const url = body.data.url || body.data.filePath
+          if (!url) {
+            reject(new Error('上传成功但未返回文件地址'))
+            return
+          }
+          resolve({
+            url: String(url),
+            poster: body.data.poster || body.data.cover || null,
+            raw: body.data
+          })
+        } catch (e) {
+          reject(new Error('上传响应解析失败'))
+        }
+      },
+      fail: () => reject(new Error('上传失败'))
+    })
+  })
+}
+
+const markPendingFailedByClientMsgId = (clientMsgId) => {
+  const idx = messages.value.findIndex((m) => String(m.clientMsgId) === String(clientMsgId))
+  if (idx >= 0) messages.value[idx] = { ...messages.value[idx], pending: false, failed: true }
+}
+
+const sendMediaMessage = async ({ mediaKind, filePath, fileName, fileSize, duration, width, height }) => {
+  if (!roomId.value) return
+  const replySnapshot = replyDraft.value ? { ...replyDraft.value } : null
+  const replyMessageId = replySnapshot?.id ?? null
+  const clientMsgId = createClientMsgId()
+
+  const localPending = buildLocalPendingMediaMessage({
+    mediaKind,
+    localUrl: String(filePath),
+    clientMsgId,
+    reply: replySnapshot ? { id: replySnapshot.id, username: replySnapshot.username, text: replySnapshot.text } : null,
+    fileName,
+    fileSize,
+    duration,
+    width,
+    height
+  })
+  appendLocalOutgoingMessage(localPending)
+  clearReplyDraft()
+
+  uni.showLoading({ title: '上传中...' })
+  try {
+    const uploaded = await uploadChatMedia({ filePath })
+    let messageType = 2 // 默认图片类型
+    if (mediaKind === 'video') {
+      messageType = 3
+    } else if (mediaKind === 'file') {
+      messageType = 4 // 文件类型
+    }
+    const reqData = {
+      roomId: Number(roomId.value),
+      type: messageType,
+      content: uploaded.url,
+      clientSeq: clientMsgId,
+      extInfo: {
+        ...(replyMessageId ? { replyMessageId } : {}),
+        mediaType: mediaKind,
+        url: uploaded.url,
+        poster: uploaded.poster || null,
+        fileName: fileName || (mediaKind === 'image' ? 'image.jpg' : mediaKind === 'video' ? 'video.mp4' : 'file'),
+        fileSize: Number(fileSize) || undefined,
+        duration: Number(duration) || undefined,
+        width: Number(width) || undefined,
+        height: Number(height) || undefined
+      }
+    }
+    if (receiverId.value) reqData.receiverId = Number(receiverId.value)
+    await imSocket.send('/app/chat/send', reqData)
+  } catch (e) {
+    console.error('发送媒体消息失败', e)
+    markPendingFailedByClientMsgId(clientMsgId)
+    const msg = e?.message ? String(e.message) : '网络异常'
+    uni.showToast({ title: `发送失败：${msg}`, icon: 'none' })
+  } finally {
+    uni.hideLoading()
+  }
+}
+
+const handlePickMedia = () => {
+  uni.showActionSheet({
+    itemList: ['发送图片', '发送视频'],
+    success: async (res) => {
+      if (res?.tapIndex === 0) {
+        uni.chooseImage({
+          count: 1,
+          sourceType: ['album', 'camera'],
+          success: (imgRes) => {
+            const path = imgRes?.tempFilePaths?.[0]
+            const file = Array.isArray(imgRes?.tempFiles) ? imgRes.tempFiles[0] : null
+            if (!path) return
+            sendMediaMessage({
+              mediaKind: 'image',
+              filePath: path,
+              fileName: file?.name || 'image.jpg',
+              fileSize: file?.size
+            })
+          }
+        })
+        return
+      }
+      if (res?.tapIndex === 1) {
+        uni.chooseVideo({
+          sourceType: ['album', 'camera'],
+          maxDuration: 60,
+          compressed: true,
+          success: (videoRes) => {
+            const path = videoRes?.tempFilePath
+            if (!path) return
+            sendMediaMessage({
+              mediaKind: 'video',
+              filePath: path,
+              fileName: 'video.mp4',
+              fileSize: videoRes?.size,
+              duration: videoRes?.duration,
+              width: videoRes?.width,
+              height: videoRes?.height
+            })
+          }
+        })
+        return
+      }
+    }
+  })
+}
+
 const ACTIVE_ROOM_KEY = 'activeChatRoomId'
 let readReportTimer = null
 let lastReadReportAt = 0
@@ -480,6 +954,23 @@ const scheduleReportRead = (delayMs = 200) => {
   }, Math.max(0, Number(delayMs) || 0))
 }
 
+const markPendingMessageFailed = (clientMsgId) => {
+  if (clientMsgId != null && String(clientMsgId)) {
+    const idx = messages.value.findIndex((m) => m?.pending && String(m.clientMsgId) === String(clientMsgId))
+    if (idx >= 0) {
+      messages.value[idx] = { ...messages.value[idx], pending: false, failed: true }
+      return true
+    }
+  }
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    if (messages.value[i]?.pending) {
+      messages.value[i] = { ...messages.value[i], pending: false, failed: true }
+      return true
+    }
+  }
+  return false
+}
+
 const handleWsPayload = (payload) => {
   console.log('handleWsPayload ->', payload)
   if (!payload || typeof payload !== 'object') return
@@ -487,7 +978,11 @@ const handleWsPayload = (payload) => {
   // Error handling
   if (payload.type === -1 && payload.data) {
     const text = payload.data != null ? String(payload.data) : '发送失败'
-    uni.showToast({ title: text, icon: 'none' })
+    const errCode = payload.code != null ? String(payload.code) : ''
+    const errClientSeq = payload.clientSeq != null ? String(payload.clientSeq) : (payload.clientMsgId != null ? String(payload.clientMsgId) : '')
+    const isNonFriend = errCode === 'NON_FRIEND_RELATION' || /非好友|好友关系|被拉黑|黑名单/.test(text)
+    markPendingMessageFailed(errClientSeq || null)
+    uni.showToast({ title: isNonFriend ? '非好友关系，无法发送消息' : text, icon: 'none' })
     return
   }
 
@@ -780,13 +1275,28 @@ onLoad(async (options) => {
     if (roomId.value != null) uni.setStorageSync(ACTIVE_ROOM_KEY, String(roomId.value))
   } catch (e) {}
 
+  const token = uni.getStorageSync('token')
   const uidFromCache = uni.getStorageSync('uid') ?? uni.getStorageSync('userInfo')?.uid ?? uni.getStorageSync('userInfo')?.id
   currentUserId.value = uidFromCache != null ? String(uidFromCache) : null
+  const userFromCache = uni.getStorageSync('userInfo') || {}
+  currentUserName.value = userFromCache?.name ? String(userFromCache.name) : ''
+  currentUserAvatar.value = userFromCache?.avatar ? String(userFromCache.avatar) : ''
+
+  // 检查是否登录
+  if (!token || !currentUserId.value) {
+    uni.showToast({ title: '请先登录', icon: 'none' })
+    setTimeout(() => {
+      uni.navigateTo({ url: '/pages/login/index' })
+    }, 1000)
+    return
+  }
 
   loadHiddenMessageIds()
 
   const safeDecode = (v) => { if (v == null) return ''; try { return decodeURIComponent(String(v)) } catch (e) { return String(v) } }
   title.value = safeDecode(options.title || options.name || '')
+  peerName.value = title.value
+  peerAvatar.value = safeDecode(options.avatar || '')
   memberCount.value = options.memberCount || options.count || ''
 
   // 1) 先注册监听
@@ -821,6 +1331,8 @@ onLoad(async (options) => {
   }
 
   initKeyboardAvoiding()
+  await hydrateGroupUserProfileCache()
+  await hydrateSingleChatProfile()
   loadInitialMessages().catch(() => {})
   scheduleReportRead(0)
 })
@@ -984,7 +1496,9 @@ const handleSendMessage = async (content) => {
     console.error('发送失败', e)
     const idx = messages.value.findIndex((m) => String(m.clientMsgId) === String(clientMsgId))
     if (idx >= 0) messages.value[idx] = { ...messages.value[idx], pending: false, failed: true }
-    uni.showToast({ title: '发送失败：' + (e?.message || '网络异常'), icon: 'none' })
+    const msg = e?.message ? String(e.message) : '网络异常'
+    const isNonFriend = /非好友|好友关系|被拉黑|黑名单/.test(msg)
+    uni.showToast({ title: isNonFriend ? '非好友关系，无法发送消息' : ('发送失败：' + msg), icon: 'none' })
   }
 }
 
@@ -1222,7 +1736,10 @@ const shouldShowTimeSeparator = (current, index) => {
 const getTimeSeparatorLabel = (current, index) => {
   const ms = Number(current?.tsMs ?? 0)
   const t = dayjs(Number.isFinite(ms) && ms > 0 ? ms : Date.now())
-  if (index === 0) return t.format('YYYY-MM-DD HH:mm')
+  const now = dayjs()
+  if (index === 0) {
+    return t.isSame(now, 'day') ? t.format('HH:mm') : t.format('YYYY-MM-DD HH:mm')
+  }
   const prev = messages.value[index - 1]
   const prevMs = Number(prev?.tsMs ?? 0)
   if (Number.isFinite(prevMs) && prevMs > 0 && ms - prevMs > 24 * 60 * 60 * 1000) {

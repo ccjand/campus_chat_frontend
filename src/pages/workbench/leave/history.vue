@@ -12,23 +12,23 @@
       <view class="list" v-if="items.length > 0">
         <view class="card" v-for="item in items" :key="item.id">
           <view class="row row-top">
-            <text class="type">{{ leaveTypeText(item.leaveType) }}</text>
+            <text class="type">{{ leaveTypeText(item.type) }}</text>
             <text class="status" :class="statusClass(item.status)">{{ statusText(item.status) }}</text>
           </view>
 
           <view class="row">
             <text class="label">时间</text>
-            <text class="value">{{ formatRange(item.startTime, item.endTime) }}</text>
+            <text class="value value-time">{{ formatRange(item.startTime, item.endTime) }}</text>
           </view>
 
           <view class="row">
             <text class="label">天数</text>
-            <text class="value">{{ (item.durationDays || 0) + '天' }}</text>
+            <text class="value">{{ getDurationDays(item) + '天' }}</text>
           </view>
 
-          <view class="row" v-if="item.courseName">
-            <text class="label">学院/班级</text>
-            <text class="value">{{ item.courseName }}</text>
+          <view class="row" v-if="item.approverName">
+            <text class="label">审批人</text>
+            <text class="value">{{ item.approverName }}</text>
           </view>
 
           <view class="row" v-if="item.reason">
@@ -36,14 +36,22 @@
             <text class="value reason">{{ item.reason }}</text>
           </view>
 
-          <view class="row" v-if="item.approverComment">
-            <text class="label">审批意见</text>
-            <text class="value reason">{{ item.approverComment }}</text>
+          <view class="row" v-if="getApproveReason(item)">
+            <text class="label">审批理由</text>
+            <text class="value reason">{{ getApproveReason(item) }}</text>
           </view>
 
-          <view class="row row-foot">
-            <text class="time">{{ formatTime(item.createTime) }}</text>
+          <view class="row row-action" v-if="canRevoke(item)">
+            <u-button
+              size="mini"
+              type="error"
+              plain
+              text="撤销申请"
+              :loading="revokingId === item.id"
+              @click="handleRevoke(item)"
+            />
           </view>
+
         </view>
       </view>
 
@@ -63,6 +71,7 @@ import request from '@/utils/request'
 const items = ref([])
 const loading = ref(false)
 const refreshing = ref(false)
+const revokingId = ref(null)
 
 const fetchHistory = async () => {
   loading.value = true
@@ -114,10 +123,24 @@ const statusClass = (status) => {
 
 const pad2 = (n) => String(n).padStart(2, '0')
 
-const formatTime = (ms) => {
-  const num = typeof ms === 'number' ? ms : Number(ms)
-  if (!num) return ''
-  const d = new Date(num)
+const parseDate = (raw) => {
+  if (raw == null || raw === '') return null
+  if (raw instanceof Date) return Number.isNaN(raw.getTime()) ? null : raw
+  if (typeof raw === 'number') {
+    const d = new Date(raw)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  const text = String(raw).trim()
+  if (!text) return null
+  const d = new Date(text)
+  if (!Number.isNaN(d.getTime())) return d
+  const d2 = new Date(text.replace(/-/g, '/'))
+  return Number.isNaN(d2.getTime()) ? null : d2
+}
+
+const formatTime = (raw) => {
+  const d = parseDate(raw)
+  if (!d) return ''
   const y = d.getFullYear()
   const m = pad2(d.getMonth() + 1)
   const day = pad2(d.getDate())
@@ -133,6 +156,53 @@ const formatRange = (startMs, endMs) => {
   if (!e) return s
   if (!s) return e
   return `${s} ~ ${e}`
+}
+
+const getDurationDays = (item) => {
+  if (!item) return 0
+  const start = parseDate(item.startTime)
+  const end = parseDate(item.endTime)
+  if (!start || !end) return 0
+  const diffHours = (end.getTime() - start.getTime()) / (1000 * 60 * 60)
+  if (!Number.isFinite(diffHours) || diffHours <= 0) return 0
+  return Math.max(1, Math.ceil(diffHours / 24))
+}
+
+const getApproveReason = (item) => {
+  if (!item) return ''
+  const text = item.approveNote ?? item.approve_note ?? item.approverComment ?? item.note ?? ''
+  return String(text).trim()
+}
+
+const canRevoke = (item) => {
+  const num = typeof item?.status === 'number' ? item.status : Number(item?.status)
+  return num === 0
+}
+
+const handleRevoke = (item) => {
+  if (!item?.id || revokingId.value != null) return
+  uni.showModal({
+    title: '撤销请假',
+    content: '确认撤销该请假申请吗？',
+    success: async (res) => {
+      if (!res.confirm) return
+      try {
+        revokingId.value = item.id
+        uni.showLoading({ title: '撤销中...' })
+        await request({
+          url: `/capi/leave/revoke?leaveId=${item.id}`,
+          method: 'POST'
+        })
+        uni.showToast({ title: '已撤销', icon: 'success' })
+        await fetchHistory()
+      } catch (e) {
+        // request.js 已统一处理提示
+      } finally {
+        uni.hideLoading()
+        revokingId.value = null
+      }
+    }
+  })
 }
 </script>
 
@@ -168,14 +238,14 @@ const formatRange = (startMs, endMs) => {
   padding: 6px 0;
 }
 
+.row-action {
+  justify-content: flex-end;
+  padding-top: 8px;
+}
+
 .row-top {
   padding-top: 0;
   align-items: center;
-}
-
-.row-foot {
-  padding-bottom: 0;
-  justify-content: flex-end;
 }
 
 .type {
@@ -227,13 +297,13 @@ const formatRange = (startMs, endMs) => {
   line-height: 1.4;
 }
 
-.value.reason {
-  white-space: pre-wrap;
+.value-time {
+  font-size: 12px;
+  color: #666;
 }
 
-.time {
-  font-size: 12px;
-  color: #bbb;
+.value.reason {
+  white-space: pre-wrap;
 }
 
 .empty {

@@ -3,8 +3,14 @@ import imSocket from '@/utils/imSocket'
 import CONFIG from '@/config.js'
 
 export default {
+  data() {
+    return {
+      removeGlobalWsListener: null
+    }
+  },
   onLaunch() {
     console.log('App Launch')
+    this.bindGlobalWsEvents()
     this.bootWs()
     // 网络状态变化时：恢复网络则尝试一次活性探测/重连
     uni.onNetworkStatusChange((res) => {
@@ -34,6 +40,23 @@ export default {
     console.log('App Hide')
   },
   methods: {
+    bindGlobalWsEvents() {
+      if (typeof this.removeGlobalWsListener === 'function') return
+      this.removeGlobalWsListener = imSocket.onMessage((payload) => {
+        if (!payload || typeof payload !== 'object') return
+        if (payload.event === 'notice') {
+          uni.$emit('event:notice-pushed', payload)
+          const title = payload.title ? `新通知：${payload.title}` : '收到新通知'
+          uni.showToast({ title, icon: 'none' })
+          return
+        }
+        if (payload.event === 'exam') {
+          uni.$emit('event:exam-pushed', payload)
+          const title = payload.name ? `新考试：${payload.name}` : '收到新考试安排'
+          uni.showToast({ title, icon: 'none' })
+        }
+      })
+    },
     bootWs() {
       const token = uni.getStorageSync('token')
       if (!token) return

@@ -17,21 +17,18 @@
     </view>
     
     <!-- Image Card -->
-    <view v-else-if="type === 'image'" class="attachment-card image">
+    <view v-else-if="type === 'image'" class="attachment-card image" @click="handleImageClick">
       <view class="image-poster">
         <image 
-          :src="data.url" 
-          mode="widthFix" 
+          :src="getFileUrl(data.url)" 
+          mode="aspectFill" 
           class="poster-img"
         ></image>
-        <view class="description" v-if="data.isAtAll">
-          <text>@所有人 产研小伙伴们，集团篮球俱乐部招新了，欢迎大家积极报名</text>
-        </view>
       </view>
     </view>
     
     <!-- File Card -->
-    <view v-else-if="type === 'file'" class="attachment-card file">
+    <view v-else-if="type === 'file'" class="attachment-card file" @click="handleFileClick">
       <view class="file-content">
         <view class="file-info">
           <text class="file-name u-line-2">{{ data.title }}</text>
@@ -42,14 +39,14 @@
         </view>
       </view>
       <view class="footer link-footer">
-        <text class="link-text">{{ data.title }}</text>
+        <text class="link-text">点击下载</text>
       </view>
     </view>
   </view>
 </template>
 
 <script setup>
-
+import { getFileUrl } from '@/utils/avatar'
 
 const props = defineProps({
   type: {
@@ -62,9 +59,39 @@ const props = defineProps({
   }
 })
 
-const handleClick = () => {
-  // Handle click event
-  console.log('Card clicked', props.data)
+const handleImageClick = () => {
+  // 预览图片
+  uni.previewImage({
+    urls: [getFileUrl(props.data.url)],
+    current: getFileUrl(props.data.url)
+  })
+}
+
+const handleFileClick = () => {
+  // 下载文件
+  const fileUrl = getFileUrl(props.data.url)
+  const fileName = props.data.title
+  
+  uni.downloadFile({
+    url: fileUrl,
+    success: (res) => {
+      if (res.statusCode === 200) {
+        // 保存文件到本地
+        uni.saveFile({
+          tempFilePath: res.tempFilePath,
+          success: (saveRes) => {
+            uni.showToast({ title: '文件下载成功', icon: 'success' })
+          },
+          fail: (err) => {
+            uni.showToast({ title: '文件保存失败', icon: 'none' })
+          }
+        })
+      }
+    },
+    fail: (err) => {
+      uni.showToast({ title: '文件下载失败', icon: 'none' })
+    }
+  })
 }
 </script>
 
@@ -110,20 +137,24 @@ const handleClick = () => {
   
   // Image Card Styles
   &.image {
-    background-color: #fff;
-    padding: 10px;
+    background-color: transparent;
+    padding: 0;
+    width: 180px;
+    height: 180px;
     
-    .poster-img {
-      width: 100%;
-      border-radius: 4px;
-      display: block;
+    .image-poster {
+      width: 180px;
+      height: 180px;
+      overflow: hidden;
+      border-radius: 8px;
     }
     
-    .description {
-      margin-top: 10px;
-      font-size: 14px;
-      color: #333;
-      line-height: 1.5;
+    .poster-img {
+      width: 180px;
+      height: 180px;
+      object-fit: cover;
+      border-radius: 8px;
+      display: block;
     }
   }
   
@@ -139,9 +170,10 @@ const handleClick = () => {
         margin-right: 10px;
         
         .file-name {
-          font-size: 16px;
+          font-size: 14px;
           color: #333;
           margin-bottom: 5px;
+          line-height: 1.4;
         }
         
         .file-size {

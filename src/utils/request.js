@@ -76,6 +76,7 @@ const request = (options) => {
           // 3. 业务状态码判断
           if (apiResult.code === 0) {
             // 成功：直接返回 data 数据，解包 ApiResult
+            console.log('<<< 成功返回:', options.url, sanitizeForLog(apiResult.data))
             resolve(apiResult.data)
           } else {
             // 失败：统一提示错误信息

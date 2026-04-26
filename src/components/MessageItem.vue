@@ -40,8 +40,10 @@ const handleClick = () => {
   }
   const type = props.message.messageType || 'single'
   const title = props.message.name ? encodeURIComponent(String(props.message.name)) : ''
+  const avatar = props.message.avatar ? encodeURIComponent(String(props.message.avatar)) : ''
+  const receiverId = props.message.receiverId ?? props.message.uid ?? props.message.targetUid
   uni.navigateTo({
-    url: `/pages/chat/index?roomId=${encodeURIComponent(String(rid))}&type=${encodeURIComponent(String(type))}&title=${title}`
+    url: `/pages/chat/index?roomId=${encodeURIComponent(String(rid))}&type=${encodeURIComponent(String(type))}&title=${title}&avatar=${avatar}${receiverId != null ? `&receiverId=${encodeURIComponent(String(receiverId))}` : ''}`
   })
 }
 </script>

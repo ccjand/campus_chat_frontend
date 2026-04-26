@@ -11,21 +11,21 @@
       <view class="content">
         <view class="section-title">常用功能</view>
         <view class="grid-container">
-          <view class="grid-item" @click="navigateTo('/pages/workbench/checkin/index')">
+          <view class="grid-item" v-if="!isAdmin" @click="navigateTo('/pages/workbench/checkin/index')">
             <view class="icon-wrapper checkin">
               <u-icon name="map-fill" size="28" color="#fff"></u-icon>
             </view>
             <text class="grid-text">课堂签到</text>
           </view>
 
-          <view class="grid-item" @click="handleLeave">
+          <view class="grid-item" v-if="!isAdmin" @click="handleLeave">
             <view class="icon-wrapper leave">
               <u-icon name="calendar-fill" size="28" color="#fff"></u-icon>
             </view>
             <text class="grid-text">请假申请</text>
           </view>
 
-          <view class="grid-item" @click="handleLeaveHistory">
+          <view class="grid-item" v-if="!isAdmin" @click="handleLeaveHistory">
             <view class="icon-wrapper history">
               <u-icon name="clock-fill" size="28" color="#fff"></u-icon>
             </view>
@@ -63,10 +63,14 @@ import BottomNav from '@/components/BottomNav.vue'
 const bottomNavRef = ref(null)
 const userInfo = ref({})
 
-const isTeacher = computed(() => {
+const isAdmin = computed(() => {
   const role = userInfo.value?.role
-  if (typeof role === 'number') return role === 2 || role === 3
-  return String(role || '').includes('教师') || String(role || '').includes('辅导员')
+  const num = typeof role === 'number' ? role : Number(role)
+  if (!Number.isNaN(num)) return num === 0
+  const text = String(role || '')
+  const upperText = text.toUpperCase()
+  if (upperText.includes('ROLE_ADMIN') || upperText === 'ADMIN') return true
+  return text.includes('管理员')
 })
 
 const handleLeave = () => {
@@ -81,10 +85,6 @@ const navigateTo = (url) => {
   uni.navigateTo({
     url: url
   })
-}
-
-const showToast = (title) => {
-  uni.showToast({ title, icon: 'none' })
 }
 
 onShow(() => {

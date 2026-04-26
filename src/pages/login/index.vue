@@ -58,7 +58,7 @@ import CONFIG from '@/config.js'
 import { getAvatarUrl } from '@/utils/avatar'
 
 const formData = ref({
-  account: '2022001',
+  account: '20230018',
   password: '123456'
 })
 
@@ -76,9 +76,11 @@ const normalizeRoleText = (role) => {
   const num = typeof role === 'number' ? role : Number(role)
   if (!Number.isNaN(num)) {
     if (num === 0) return '管理员'
+    if (num === 1) return '学生'
     if (num === 2) return '教师'
     if (num === 3) return '辅导员'
-    return '学生'
+    if (num === 4) return '院长'
+    return '未知角色'
   }
   return role == null ? '' : String(role)
 }
@@ -92,7 +94,7 @@ const buildUserInfoFromLoginResp = (loginResp) => {
     token: loginResp?.token,
     name: loginResp?.name || loginResp?.fullName, // prioritize the new 'name' field
     avatar,
-    role: loginResp?.role || roleText, // Keep the raw string role from backend
+    role: loginResp?.role ?? roleText, // role=0 不能被 || 覆盖
     department: loginResp?.departmentName || loginResp?.department,
     className: loginResp?.className,
     accountNumber: loginResp?.accountNumber,
@@ -175,8 +177,14 @@ const handleLogin = async () => {
     position: absolute;
     filter: blur(80px);
     opacity: 0.6;
-    animation: float 20s infinite ease-in-out;
     border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+  }
+  
+  /* 仅在非移动设备上使用动画 */
+  @media (min-width: 768px) {
+    .shape {
+      animation: float 20s infinite ease-in-out;
+    }
   }
   
   .shape-1 {
@@ -185,7 +193,6 @@ const handleLogin = async () => {
     width: 600px;
     height: 600px;
     background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%);
-    animation-delay: 0s;
   }
   
   .shape-2 {
@@ -194,8 +201,6 @@ const handleLogin = async () => {
     width: 500px;
     height: 500px;
     background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
-    animation-delay: -5s;
-    animation-direction: reverse;
   }
   
   .shape-3 {
@@ -205,15 +210,57 @@ const handleLogin = async () => {
     height: 300px;
     background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
     opacity: 0.4;
+  }
+}
+
+/* 仅在非移动设备上使用动画 */
+@media (min-width: 768px) {
+  @keyframes float {
+    0% { transform: translate(0, 0) rotate(0deg); border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; }
+    33% { transform: translate(30px, -50px) rotate(120deg); border-radius: 70% 30% 50% 50% / 30% 30% 70% 70%; }
+    66% { transform: translate(-20px, 20px) rotate(240deg); border-radius: 100% 60% 60% 100% / 100% 100% 60% 60%; }
+    100% { transform: translate(0, 0) rotate(360deg); border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; }
+  }
+  
+  .shape {
+    animation: float 20s infinite ease-in-out;
+  }
+  
+  .shape-2 {
+    animation-direction: reverse;
+  }
+  
+  .shape-3 {
     animation-delay: -10s;
   }
 }
 
-@keyframes float {
-  0% { transform: translate(0, 0) rotate(0deg); border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; }
-  33% { transform: translate(30px, -50px) rotate(120deg); border-radius: 70% 30% 50% 50% / 30% 30% 70% 70%; }
-  66% { transform: translate(-20px, 20px) rotate(240deg); border-radius: 100% 60% 60% 100% / 100% 100% 60% 60%; }
-  100% { transform: translate(0, 0) rotate(360deg); border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; }
+/* 移动端优化 */
+@media (max-width: 767px) {
+  .fluid-bg .shape {
+    filter: blur(60px); /* 减少模糊效果以提升性能 */
+    opacity: 0.5; /* 降低透明度以减少渲染负担 */
+  }
+  
+  .shape-1 {
+    width: 400px; /* 减小尺寸 */
+    height: 400px;
+  }
+  
+  .shape-2 {
+    width: 350px; /* 减小尺寸 */
+    height: 350px;
+  }
+  
+  .shape-3 {
+    width: 250px; /* 减小尺寸 */
+    height: 250px;
+  }
+  
+  .form-card {
+    backdrop-filter: blur(10px); /* 减少磨砂效果以提升性能 */
+    padding: 40px 25px; /* 减少内边距以适应小屏幕 */
+  }
 }
 
 .content-wrapper {
