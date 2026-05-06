@@ -21,6 +21,8 @@
           <view class="grid-item" v-if="!isAdmin" @click="handleLeave">
             <view class="icon-wrapper leave">
               <u-icon name="calendar-fill" size="28" color="#fff"></u-icon>
+              <!-- ★ 红点 -->
+              <view v-if="badgeDetail.leaveDot" class="func-dot"></view>
             </view>
             <text class="grid-text">请假申请</text>
           </view>
@@ -60,6 +62,8 @@ import { ref, computed, nextTick } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import BottomNav from '@/components/BottomNav.vue'
 
+const badgeDetail = ref({})
+
 const bottomNavRef = ref(null)
 const userInfo = ref({})
 
@@ -70,7 +74,7 @@ const isAdmin = computed(() => {
   const text = String(role || '')
   const upperText = text.toUpperCase()
   if (upperText.includes('ROLE_ADMIN') || upperText === 'ADMIN') return true
-  return text.includes('管理员')
+  return false
 })
 
 const handleLeave = () => {
@@ -88,18 +92,25 @@ const navigateTo = (url) => {
 }
 
 onShow(() => {
-  const info = uni.getStorageSync('userInfo')
-  userInfo.value = info && typeof info === 'object' ? info : {}
-
-  nextTick(() => {
-    if (bottomNavRef.value?.loadBadgeInfo) {
-      bottomNavRef.value.loadBadgeInfo()
+   // 加载细分 badge
+    const cached = uni.getStorageSync('globalBadgeInfo')
+    if (cached) {
+        try { badgeDetail.value = JSON.parse(cached) } catch(e) {}
     }
-  })
 })
 </script>
 
 <style lang="scss" scoped>
+.func-dot {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 8px;
+    height: 8px;
+    background: #ff3b30;
+    border-radius: 50%;
+    border: 1px solid #fff;
+}
 .workbench-page {
   min-height: 100vh;
   background-color: #F5F6FA;

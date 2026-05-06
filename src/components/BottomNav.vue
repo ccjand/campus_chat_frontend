@@ -168,12 +168,23 @@ const currentUserId = uni.getStorageSync('uid') || uni.getStorageSync('userInfo'
 onMounted(() => {
   loadBadgeInfo()
   removeWsListener = imSocket.onMessage(handleWsPayload)
+  //监听 badge WebSocket 推送
+    removeBadgeListener = imSocket.onBadge((badge) => {
+        if (badge) {
+            const currentUnread = badgeInfo.value.unreadMsgCount || 0
+            badgeInfo.value = {
+                ...badgeInfo.value,
+                ...badge,
+                unreadMsgCount: currentUnread  // 保留本地维护的未读数
+            }
+            saveGlobalBadgeInfo(badgeInfo.value)
+        }
+    })
 })
 
 onUnmounted(() => {
-  if (typeof removeWsListener === 'function') {
-    removeWsListener()
-  }
+ if (typeof removeWsListener === 'function') removeWsListener()
+ if (typeof removeBadgeListener === 'function') removeBadgeListener()
 })
 
 defineExpose({ loadBadgeInfo })

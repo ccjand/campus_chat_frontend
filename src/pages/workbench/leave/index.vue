@@ -2,7 +2,7 @@
   <view class="leave-page">
     <top-nav title="请假" :show-avatar="false" :show-back="true" :show-default-icons="false"></top-nav>
     
-    <view class="tabs-container" v-if="userInfo && userInfo.role === 3">
+    <view class="tabs-container" v-if="userInfo && (userInfo.role === 3 || userInfo.role === 4)">
       <u-tabs :list="tabList" :current="currentTab" @click="switchTab"></u-tabs>
     </view>
 
@@ -463,14 +463,15 @@ const removeFile = (index) => {
   fileList.value.splice(index, 1)
 }
 
-const isTeacher = computed(() => {
+// 教师(2)和辅导员(3)向院长请假，学生(1)向辅导员请假
+const applyToDean = computed(() => {
   const role = userInfo.value?.role
-  if (typeof role === 'number') return role === 2 || role === 3
-  return String(role || '').includes('教师') || String(role || '').includes('辅导员')
+  return typeof role === 'number' && (role === 2 || role === 3)
 })
 
+
 const approverLabel = computed(() => {
-  return isTeacher.value ? '请假对象(院长)' : '请假对象(辅导员)'
+  return applyToDean.value ? '请假对象(院长)' : '请假对象(辅导员)'
 })
 
 const userCollege = computed(() => {

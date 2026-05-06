@@ -58,7 +58,7 @@ const parseStompFrame = (data) => {
 }
 
 const notifyMessageListeners = (p) => messageListeners.forEach((fn) => { try { fn(p) } catch (e) { console.error(e) } })
-const notifyStatusListeners = (s) => statusListeners.forEach((fn) => { try { fn(s) } catch (e) {} })
+const notifyStatusListeners = (s) => statusListeners.forEach((fn) => { try { fn(s) } catch (e) { } })
 
 // ===== 新增：心跳 =====
 const startHeartbeat = () => {
@@ -72,7 +72,7 @@ const startHeartbeat = () => {
       socketTask = null
       connected = false
       stopHeartbeat()
-      try { dying && dying.close && dying.close({}) } catch (e) {}
+      try { dying && dying.close && dying.close({}) } catch (e) { }
       notifyStatusListeners('disconnected')
       scheduleReconnect()
       return
@@ -121,7 +121,7 @@ const connect = ({ token, terminalType }) => {
 
     socketTask = uni.connectSocket({
       url,
-      complete: () => {}
+      complete: () => { }
     })
     if (!socketTask) {
       connectingPromise = null
@@ -189,6 +189,12 @@ const connect = ({ token, terminalType }) => {
           try {
             socketTask.send({ data: encodeStompFrame('SUBSCRIBE', { id: 'sub-user-queue', destination: '/user/queue/messages' }) })
 
+            socketTask.send({
+              data: encodeStompFrame('SUBSCRIBE', {
+                id: 'sub-user-badge',
+                destination: '/user/queue/badge'
+              })
+            })
             activeSubscriptions.forEach((destination, subId) => {
               if (subId === 'sub-user-queue') return
               socketTask.send({ data: encodeStompFrame('SUBSCRIBE', { id: subId, destination }) })
@@ -201,7 +207,12 @@ const connect = ({ token, terminalType }) => {
           resolve(true)
         } else if (frame.command === 'MESSAGE') {
           console.log('STOMP MESSAGE', frame.headers?.destination, frame.body)
-          notifyMessageListeners(frame.body)
+          const dest = frame.headers?.destination || ''
+          if (dest.includes('/queue/badge')) {
+            notifyBadgeListeners(frame.body) 
+          } else {
+            notifyMessageListeners(frame.body)
+          }
         } else if (frame.command === 'ERROR') {
           console.error('STOMP ERROR', frame.headers, frame.body)
           if (!connected) {
@@ -245,9 +256,9 @@ const disconnect = () => {
       socketTask.send({ data: encodeStompFrame('DISCONNECT', { receipt: 'close-1' }) })
     }
     if (socketTask) {
-      setTimeout(() => { try { socketTask.close({}) } catch (e) {} }, 50)
+      setTimeout(() => { try { socketTask.close({}) } catch (e) { } }, 50)
     }
-  } catch (e) {}
+  } catch (e) { }
   socketTask = null
   connected = false
   connectingPromise = null
@@ -292,7 +303,7 @@ const unsubscribe = (id) => {
   try {
     socketTask.send({ data: encodeStompFrame('UNSUBSCRIBE', { id }) })
     console.log('STOMP UNSUBSCRIBE →', id)
-  } catch (e) {}
+  } catch (e) { }
 }
 
 /**
@@ -317,7 +328,7 @@ const revalidate = () => {
   }
   // 连着的情况：发一个心跳探测
   const probeAt = Date.now()
-  try { socketTask.send({ data: '\n' }) } catch (e) {}
+  try { socketTask.send({ data: '\n' }) } catch (e) { }
   setTimeout(() => {
     // 3 秒内没有任何数据到达 → 认为连接已死
     if (lastPongAt < probeAt) {
@@ -326,15 +337,15 @@ const revalidate = () => {
       socketTask = null
       connected = false
       stopHeartbeat()
-      try { dying && dying.close && dying.close({}) } catch (e) {}
+      try { dying && dying.close && dying.close({}) } catch (e) { }
       notifyStatusListeners('disconnected')
       scheduleReconnect()
     }
   }, 3000)
 }
 
-const onMessage = (fn) => { if (typeof fn !== 'function') return () => {}; messageListeners.add(fn); return () => messageListeners.delete(fn) }
-const onStatusChange = (fn) => { if (typeof fn !== 'function') return () => {}; statusListeners.add(fn); return () => statusListeners.delete(fn) }
+const onMessage = (fn) => { if (typeof fn !== 'function') return () => { }; messageListeners.add(fn); return () => messageListeners.delete(fn) }
+const onStatusChange = (fn) => { if (typeof fn !== 'function') return () => { }; statusListeners.add(fn); return () => statusListeners.delete(fn) }
 const isConnected = () => connected
 
 export default {
