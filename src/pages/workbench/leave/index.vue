@@ -570,6 +570,17 @@ const submitApprove = async () => {
     uni.showToast({ title: '审批成功', icon: 'success' })
     closeApproveModal()
     loadRecords()
+    // 审批后刷新红点
+    try {
+      const badgeRes = await request({ url: '/capi/badge', method: 'GET' })
+      if (badgeRes) {
+        let old = {}
+        try { old = JSON.parse(uni.getStorageSync('globalBadgeInfo')) } catch(e) {}
+        const updated = { ...old, ...badgeRes, unreadMsgCount: old.unreadMsgCount || 0 }
+        uni.setStorageSync('globalBadgeInfo', JSON.stringify(updated))
+        uni.$emit('badge:updated', updated)
+      }
+    } catch(e) {}
   } catch (e) {
     uni.hideLoading()
   }

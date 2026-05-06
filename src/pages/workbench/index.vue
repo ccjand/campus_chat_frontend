@@ -62,6 +62,9 @@ import { ref, computed, nextTick } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import BottomNav from '@/components/BottomNav.vue'
 
+import { ref, computed, nextTick, onUnmounted } from 'vue'
+
+
 const badgeDetail = ref({})
 
 const bottomNavRef = ref(null)
@@ -90,6 +93,12 @@ const navigateTo = (url) => {
     url: url
   })
 }
+
+const onBadgeUpdated = (badge) => {
+  if (badge) badgeDetail.value = { ...badgeDetail.value, ...badge }
+}
+uni.$on('badge:updated', onBadgeUpdated)
+onUnmounted(() => { uni.$off('badge:updated', onBadgeUpdated) })
 
 onShow(() => {
    // 加载细分 badge

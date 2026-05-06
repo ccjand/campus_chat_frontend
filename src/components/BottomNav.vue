@@ -127,6 +127,7 @@ const loadBadgeInfo = async () => {
         unreadMsgCount: currentUnread
       }
       saveGlobalBadgeInfo(badgeInfo.value)
+      uni.$emit('badge:updated', badgeInfo.value) 
     }
   } catch (e) {
     // console.warn('Load badge info error', e)
@@ -180,6 +181,7 @@ onMounted(() => {
                 unreadMsgCount: currentUnread  // 保留本地维护的未读数
             }
             saveGlobalBadgeInfo(badgeInfo.value)
+            uni.$emit('badge:updated', badgeInfo.value) 
         }
     })
 })
