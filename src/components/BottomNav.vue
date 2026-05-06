@@ -152,10 +152,14 @@ const handleWsPayload = (payload) => {
     for (let i = 0; i < 500; i++) processedMsgIds.delete(iterator.next().value)
   }
 
-  const currentUserId = uni.getStorageSync('uid') || uni.getStorageSync('userInfo')?.uid || uni.getStorageSync('userInfo')?.id
+const currentUserId = uni.getStorageSync('uid') || uni.getStorageSync('userInfo')?.uid || uni.getStorageSync('userInfo')?.id
   if (String(payload.fromUid) === String(currentUserId)) return
 
-  // Increment local unread count dynamically!
+  // 如果消息属于当前正在查看的聊天室，不增加未读计数
+  const activeRoom = uni.getStorageSync('activeChatRoomId')
+  const msgRoomId = payload.roomId
+  if (activeRoom != null && msgRoomId != null && String(activeRoom) === String(msgRoomId)) return
+
   badgeInfo.value.unreadMsgCount = (Number(badgeInfo.value.unreadMsgCount) || 0) + 1
   saveGlobalBadgeInfo(badgeInfo.value)
 }

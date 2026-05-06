@@ -4,12 +4,12 @@
       v-for="msg in messages" 
       :key="msg.id" 
       :message="msg"
+      @clear-unread="(roomId) => emit('clear-unread', roomId)"
     ></message-item>
   </view>
 </template>
 
 <script setup>
-
 import MessageItem from './MessageItem.vue'
 
 const props = defineProps({
@@ -18,11 +18,13 @@ const props = defineProps({
     default: () => []
   }
 })
+
+const emit = defineEmits(['clear-unread'])
 </script>
 
 <style lang="scss" scoped>
 .message-list {
   background-color: #fff;
-  padding-bottom: 60px; // Space for bottom nav
+  padding-bottom: 60px;
 }
 </style>

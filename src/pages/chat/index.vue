@@ -1032,6 +1032,36 @@ const handleWsPayload = (payload) => {
 }
 
 /**
+ * 连接成功后拉取 Redis 离线消息队列中的待推消息。
+ * 后端从 Redis ZSET 按时间升序读取并返回后立即删除，防止重复投递。
+ */
+const fetchOfflineMessages = async () => {
+  try {
+    const list = await request({
+      url: '/capi/message/offline',
+      method: 'GET',
+      data: { max: 200 }
+    })
+    const arr = Array.isArray(list) ? list : []
+    if (!arr.length) {
+      console.log('fetchOfflineMessages: 无离线消息')
+      return
+    }
+    console.log(`fetchOfflineMessages: 收到 ${arr.length} 条离线消息`)
+    arr.forEach((item) => {
+      const ui = mapChatMessageRespToUi(item)
+      if (!ui) return
+      if (hiddenMessageIdSet.has(String(ui.id))) return
+      if (String(item.roomId) === String(roomId.value)) {
+        applyIncomingChatMessage(ui, item)
+      }
+    })
+  } catch (e) {
+    console.error('fetchOfflineMessages 失败', e)
+  }
+}
+
+/**
  * 断线重连 / 从后台回前台后调用：
  * 基于本地最后一条"真实"消息 id，向后端拉取该 id 之后的所有新消息，
  * 用来补全掉线期间漏收的消息。不会替换已有消息，只会追加。
@@ -1303,16 +1333,17 @@ onLoad(async (options) => {
   removeWsListener = imSocket.onMessage(handleWsPayload)
   
 // 重连事件：基于本地最后一条消息 id 做增量拉取，正确补全 gap，
-  removeWsStatusListener = imSocket.onStatusChange((status) => {
-    if (status === 'connected') {
-      console.log('WS 已(重新)连接，开始增量补拉漏收消息...')
-      if (roomId.value) {
-        fetchSinceLastMessage().catch(() => {})
-        // 房间 topic 订阅在 imSocket 内部会根据 activeSubscriptions 自动恢复，
-        // 这里不必重复 subscribe。
-      }
+removeWsStatusListener = imSocket.onStatusChange((status) => {
+  if (status === 'connected') {
+    console.log('WS 已(重新)连接，开始补拉离线消息...')
+    // 先拉 Redis 离线队列（完全离线期间的消息）
+    fetchOfflineMessages().catch(() => {})
+    // 再按 sinceId 从数据库增量补全（短暂断线期间的消息）
+    if (roomId.value) {
+      fetchSinceLastMessage().catch(() => {})
     }
-  })
+  }
+})
 
   // 2) 兜底连接
   try {
@@ -1337,6 +1368,8 @@ onLoad(async (options) => {
   scheduleReportRead(0)
 })
 
+
+
 // 从后台恢复时：
 // 1) 主动让 imSocket 探活（可能底层 socket 已被 OS 杀掉但 onClose 没触发）
 // 2) 基于本地最后一条消息 id 做增量补拉，而不是重置整个列表
@@ -1350,7 +1383,18 @@ onShow(() => {
   fetchSinceLastMessage().catch(() => {})
 })
 
+onHide(() => {
+  // 页面被隐藏时（如 App 切后台），确保已读状态同步
+  if (roomId.value) {
+    reportRead()
+  }
+})
+
 onUnload(() => {
+  // 离开聊天页时：确保已读上报 + 通知首页刷新未读计数
+  reportRead()
+  uni.$emit('chat:refresh_recent')
+
   if (roomId.value) imSocket.unsubscribe(`room-${roomId.value}`)
   if (readReportTimer) clearTimeout(readReportTimer)
   readReportTimer = null

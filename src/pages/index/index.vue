@@ -10,7 +10,7 @@
     <view class="tab-content">
       <scroll-view scroll-y class="content-scroll">
         <view class="message-scroll-body">
-          <message-list v-if="messages && messages.length" :messages="messages"></message-list>
+          <message-list v-if="messages && messages.length" :messages="messages" @clear-unread="handleClearUnread"></message-list>
           <view v-else class="empty">
             <text class="empty-text">消息为空</text>
           </view>
@@ -173,6 +173,13 @@ const scheduleRefreshRecent = (delayMs = 300) => {
     await loadRecentContacts()
   }, Math.max(0, Number(delayMs) || 0))
 }
+const handleClearUnread = (roomId) => {
+  if (roomId == null) return
+  const idx = messages.value.findIndex((m) => String(m?.roomId ?? m?.id) === String(roomId))
+  if (idx >= 0) {
+    messages.value[idx] = { ...messages.value[idx], unreadCount: 0 }
+  }
+}
 
 const handleWsPayload = (payload) => {
   if (!payload || typeof payload !== 'object') return
@@ -220,7 +227,9 @@ const handleWsPayload = (payload) => {
   const isSelf = myUid != null && dataObj?.fromUid != null && String(myUid) === String(dataObj.fromUid)
   const activeRoom = uni.getStorageSync(ACTIVE_ROOM_KEY)
   const isActiveRoom = activeRoom != null && String(activeRoom) === String(rid)
-  const shouldIncUnread = !isSelf && !isActiveRoom
+   const existingSession = messages.value.find((m) => String(m?.roomId ?? m?.id) === String(rid))
+  const isMuted = !!existingSession?.mute
+  const shouldIncUnread = !isSelf && !isActiveRoom && !isMuted
 
   const idx = messages.value.findIndex((m) => String(m?.roomId ?? m?.id) === String(rid))
   if (idx < 0) {
@@ -272,14 +281,15 @@ onShow(() => {
     uni.$on(EVENT_REFRESH_RECENT, handler)
     removeRecentRefreshListener = () => uni.$off(EVENT_REFRESH_RECENT, handler)
   }
+  // 只在监听器尚未注册时注册，避免重复
   if (typeof removeWsListener !== 'function') {
     removeWsListener = imSocket.onMessage(handleWsPayload)
   }
 })
 
 onHide(() => {
-  if (typeof removeWsListener === 'function') removeWsListener()
-  removeWsListener = null
+  // 不再移除 WS 监听，让 index.vue 在后台也能实时更新其他房间的未读计数
+  // handleWsPayload 中的 isActiveRoom 检查会自动跳过当前聊天室的消息
   if (refreshRecentTimer) clearTimeout(refreshRecentTimer)
   refreshRecentTimer = null
 })
@@ -287,6 +297,10 @@ onHide(() => {
 onUnload(() => {
   if (typeof removeRecentRefreshListener === 'function') removeRecentRefreshListener()
   removeRecentRefreshListener = null
+  if (typeof removeWsListener === 'function') removeWsListener()
+  removeWsListener = null
+  if (refreshRecentTimer) clearTimeout(refreshRecentTimer)
+  refreshRecentTimer = null
 })
 </script>
 

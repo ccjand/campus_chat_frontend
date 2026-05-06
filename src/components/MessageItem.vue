@@ -31,13 +31,13 @@ const props = defineProps({
   }
 })
 
+const emit = defineEmits(['clear-unread'])
+
 const handleClick = () => {
   const rid = props.message.roomId ?? props.message.id
   if (rid == null) return
   // Optimistically clear unread count locally
-  if (props.message) {
-    props.message.unreadCount = 0
-  }
+  emit('clear-unread', rid)
   const type = props.message.messageType || 'single'
   const title = props.message.name ? encodeURIComponent(String(props.message.name)) : ''
   const avatar = props.message.avatar ? encodeURIComponent(String(props.message.avatar)) : ''

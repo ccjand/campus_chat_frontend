@@ -563,17 +563,18 @@ const requestLocation = () => {
     console.warn('【定位】准备获取定位（环境信息读取失败）')
   }
 
-  try {
-    const isH5 = typeof window !== 'undefined' && typeof document !== 'undefined'
-    if (isH5 && window.location) {
-      const hostname = window.location.hostname || ''
-      const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1'
-      if (!isLocalHost && window.isSecureContext === false) {
-        console.error('【定位失败】H5 非安全环境，浏览器可能拦截定位')
-        return Promise.reject(new Error('H5 insecure context'))
-      }
-    }
-  } catch (e) {}
+  // 注：已移除 H5 安全环境检查，允许 http + ip/port 访问时尝试定位
+  // try {
+  //   const isH5 = typeof window !== 'undefined' &amp;&amp; typeof document !== 'undefined'
+  //   if (isH5 &amp;&amp; window.location) {
+  //     const hostname = window.location.hostname || ''
+  //     const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1'
+  //     if (!isLocalHost &amp;&amp; window.isSecureContext === false) {
+  //       console.error('【定位失败】H5 非安全环境，浏览器可能拦截定位')
+  //       return Promise.reject(new Error('H5 insecure context'))
+  //     }
+  //   }
+  // } catch (e) {}
 
   if (lastLocation.value && Date.now() - lastLocationAt.value <= locationFreshMs) {
     console.warn('【定位】命中缓存，直接复用', {
