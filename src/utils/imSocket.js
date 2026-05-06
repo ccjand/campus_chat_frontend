@@ -24,6 +24,7 @@ const HEARTBEAT_TIMEOUT_MS = 25000
 
 const messageListeners = new Set()
 const statusListeners = new Set()
+const badgeListeners = new Set()
 const activeSubscriptions = new Map()
 
 const safeJsonParse = (t) => { try { return JSON.parse(t) } catch (e) { return null } }
@@ -188,6 +189,8 @@ const connect = ({ token, terminalType }) => {
 
           try {
             socketTask.send({ data: encodeStompFrame('SUBSCRIBE', { id: 'sub-user-queue', destination: '/user/queue/messages' }) })
+            socketTask.send({ data: encodeStompFrame('SUBSCRIBE', { id: 'sub-user-badge', destination: '/user/queue/badge' }) })
+
 
             socketTask.send({
               data: encodeStompFrame('SUBSCRIBE', {
@@ -196,7 +199,7 @@ const connect = ({ token, terminalType }) => {
               })
             })
             activeSubscriptions.forEach((destination, subId) => {
-              if (subId === 'sub-user-queue') return
+              if (subId === 'sub-user-queue' || subId === 'sub-user-badge') return
               socketTask.send({ data: encodeStompFrame('SUBSCRIBE', { id: subId, destination }) })
             })
           } catch (e) {
@@ -209,7 +212,8 @@ const connect = ({ token, terminalType }) => {
           console.log('STOMP MESSAGE', frame.headers?.destination, frame.body)
           const dest = frame.headers?.destination || ''
           if (dest.includes('/queue/badge')) {
-            notifyBadgeListeners(frame.body) 
+            const parsed = safeJsonParse(frame.body)
+            if (parsed) badgeListeners.forEach((fn) => { try { fn(parsed) } catch (e) { console.error(e) } })
           } else {
             notifyMessageListeners(frame.body)
           }
@@ -346,9 +350,10 @@ const revalidate = () => {
 
 const onMessage = (fn) => { if (typeof fn !== 'function') return () => { }; messageListeners.add(fn); return () => messageListeners.delete(fn) }
 const onStatusChange = (fn) => { if (typeof fn !== 'function') return () => { }; statusListeners.add(fn); return () => statusListeners.delete(fn) }
+const onBadge = (fn) => { if (typeof fn !== 'function') return () => {}; badgeListeners.add(fn); return () => badgeListeners.delete(fn) }
 const isConnected = () => connected
 
 export default {
   connect, disconnect, send, isConnected, onMessage, onStatusChange,
-  subscribe, unsubscribe, awaitConnected, revalidate
+  subscribe, unsubscribe, awaitConnected, revalidate, onBadge
 }

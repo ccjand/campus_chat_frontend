@@ -135,6 +135,8 @@ const loadBadgeInfo = async () => {
 
 // Global WebSocket listener for background tabs
 let removeWsListener = null
+let removeBadgeListener = null
+
 const processedMsgIds = new Set()
 
 const handleWsPayload = (payload) => {

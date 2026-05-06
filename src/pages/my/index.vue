@@ -145,10 +145,8 @@ const handleLogout = () => {
 
         imSocket.disconnect()
 
-        // 清除本地缓存
-        uni.removeStorageSync('token')
-        uni.removeStorageSync('uid')
-        uni.removeStorageSync('userInfo')
+        // 清除该用户所有本地缓存
+        uni.clearStorageSync()
         
         // 跳转回登录页
         uni.reLaunch({ url: '/pages/login/index' })
