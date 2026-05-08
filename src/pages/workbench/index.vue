@@ -58,11 +58,10 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, onUnmounted} from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import BottomNav from '@/components/BottomNav.vue'
 
-import { ref, computed, nextTick, onUnmounted } from 'vue'
 
 
 const badgeDetail = ref({})
