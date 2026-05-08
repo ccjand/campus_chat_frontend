@@ -56,7 +56,32 @@ export default {
           uni.$emit('event:exam-pushed', payload)
           const title = payload.name ? `新考试：${payload.name}` : '收到新考试安排'
           uni.showToast({ title, icon: 'none' })
+          return
         }
+        //收到请假申请事件，刷新红点
+        if (payload.event === 'leave_pending') {
+          uni.showToast({ title: '收到新的请假申请', icon: 'none' })
+          this.refreshGlobalBadge()
+          return
+        }
+         if (payload.event === 'notice') {
+          uni.$emit('event:notice-pushed', payload)
+          const title = payload.title ? `新通知：${payload.title}` : '收到新通知'
+          uni.showToast({ title, icon: 'none' })
+          this.refreshGlobalBadge()               
+          return
+        }
+      })
+
+      this.removeBadgeWsListener = imSocket.onBadge((badge) => {
+        if (!badge) return
+        let oldUnread = 0
+        try {
+          oldUnread = JSON.parse(uni.getStorageSync('globalBadgeInfo') || '{}').unreadMsgCount || 0
+        } catch(e) {}
+        const updated = { ...badge, unreadMsgCount: badge.unreadMsgCount || oldUnread }
+        uni.setStorageSync('globalBadgeInfo', JSON.stringify(updated))
+        uni.$emit('badge:updated', updated)
       })
  
       // 监听 WebSocket 连接状态，连接成功后拉取离线消息
@@ -101,6 +126,21 @@ export default {
       } catch (e) {
         console.warn('拉取离线消息失败：', e?.message || e)
       }
+    },
+
+    async refreshGlobalBadge() {
+      try {
+        const res = await request({ url: '/capi/badge', method: 'GET' })
+        if (res) {
+          let oldUnread = 0
+          try {
+            oldUnread = JSON.parse(uni.getStorageSync('globalBadgeInfo') || '{}').unreadMsgCount || 0
+          } catch(e) {}
+          const updated = { ...res, unreadMsgCount: res.unreadMsgCount || oldUnread }
+          uni.setStorageSync('globalBadgeInfo', JSON.stringify(updated))
+          uni.$emit('badge:updated', updated)
+        }
+      } catch(e) {}
     }
   }
 }

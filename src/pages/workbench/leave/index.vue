@@ -571,12 +571,14 @@ const submitApprove = async () => {
     closeApproveModal()
     loadRecords()
     // 审批后刷新红点
+    // 审批后刷新红点
     try {
       const badgeRes = await request({ url: '/capi/badge', method: 'GET' })
       if (badgeRes) {
-        let old = {}
-        try { old = JSON.parse(uni.getStorageSync('globalBadgeInfo')) } catch(e) {}
-        const updated = { ...old, ...badgeRes, unreadMsgCount: old.unreadMsgCount || 0 }
+        const oldUnread = Number(
+          JSON.parse(uni.getStorageSync('globalBadgeInfo') || '{}').unreadMsgCount || 0
+        )
+        const updated = { ...badgeRes, unreadMsgCount: badgeRes.unreadMsgCount || oldUnread }
         uni.setStorageSync('globalBadgeInfo', JSON.stringify(updated))
         uni.$emit('badge:updated', updated)
       }

@@ -300,17 +300,22 @@ const resolveRoleType = (info) => {
     if (num === 0) return 'admin'
     if (num === 2) return 'teacher'
     if (num === 3) return 'counselor'
+    if (num === 4) return 'staff'       
     return 'student'
   }
   const text = role == null ? '' : String(role)
   if (text === '管理员' || text.includes('管理员')) return 'admin'
   if (text === '教师' || text.includes('教师') || text === 'teacher') return 'teacher'
   if (text === '辅导员' || text.includes('辅导员') || text === 'counselor') return 'counselor'
+  if (text === '院长' || text.includes('院长') || text === 'staff') return 'staff'   // ← 新增
   if (text === '学生' || text.includes('学生') || text === 'student') return 'student'
   return ''
 }
 
-const isTeacher = computed(() => resolveRoleType(userInfo.value) === 'teacher')
+const isTeacher = computed(() => {
+  const rt = resolveRoleType(userInfo.value)
+  return rt === 'teacher' || rt === 'counselor' || rt === 'staff' || rt === 'admin'
+})
 
 const showTeacherCoursePicker = ref(false)
 const teacherCourses = ref([])
@@ -720,7 +725,7 @@ onShow(async () => {
     console.warn('【签到页】页面进入')
   }
   const roleType = resolveRoleType(userInfo.value)
-  if (roleType === 'teacher') {
+  if (roleType === 'teacher' || roleType === 'counselor' || roleType === 'staff' || roleType === 'admin') {
     try {
       await loadTeacherCourses()
       await loadTeacherClasses(teacherSelectedCourseId.value)
@@ -1078,7 +1083,7 @@ const handleScan = () => {
     return
   }
   uni.scanCode({
-    onlyFromCamera: true,
+    onlyFromCamera: false,
     success: async (res) => {
       try {
         const content = res?.result ? String(res.result) : ''

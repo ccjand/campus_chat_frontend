@@ -30,18 +30,20 @@
           <view class="grid-item" v-if="!isAdmin" @click="handleLeaveHistory">
             <view class="icon-wrapper history">
               <u-icon name="clock-fill" size="28" color="#fff"></u-icon>
+              <view v-if="badgeDetail.leaveResultDot" class="func-dot"></view>
             </view>
             <text class="grid-text">请假记录</text>
           </view>
           
-          <view class="grid-item" @click="navigateTo('/pages/workbench/notice/index')">
+         <view class="grid-item" @click="navigateTo('/pages/workbench/notice/index')">
             <view class="icon-wrapper notice">
               <u-icon name="bell-fill" size="28" color="#fff"></u-icon>
+              <view v-if="badgeDetail.noticeDot" class="func-dot"></view>
             </view>
             <text class="grid-text">通知公告</text>
           </view>
 
-          <view class="grid-item" @click="navigateTo('/pages/workbench/exam/index')">
+          <view class="grid-item" v-if="isStudent || isAdmin" @click="navigateTo('/pages/workbench/exam/index')">
             <view class="icon-wrapper exam">
               <u-icon name="edit-pen-fill" size="28" color="#fff"></u-icon>
             </view>
@@ -59,9 +61,9 @@
 
 <script setup>
 import { ref, computed, nextTick, onUnmounted} from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onHide } from '@dcloudio/uni-app'
 import BottomNav from '@/components/BottomNav.vue'
-
+import request from '@/utils/request' 
 
 
 const badgeDetail = ref({})
@@ -76,6 +78,15 @@ const isAdmin = computed(() => {
   const text = String(role || '')
   const upperText = text.toUpperCase()
   if (upperText.includes('ROLE_ADMIN') || upperText === 'ADMIN') return true
+  return false
+})
+
+const isStudent = computed(() => {
+  const role = userInfo.value?.role
+  const num = typeof role === 'number' ? role : Number(role)
+  if (!Number.isNaN(num)) return num === 1
+  const text = String(role || '').toUpperCase()
+  if (text.includes('ROLE_STUDENT') || text === 'STUDENT') return true
   return false
 })
 
@@ -94,17 +105,46 @@ const navigateTo = (url) => {
 }
 
 const onBadgeUpdated = (badge) => {
-  if (badge) badgeDetail.value = { ...badgeDetail.value, ...badge }
+  if (badge) badgeDetail.value = badge
 }
 uni.$on('badge:updated', onBadgeUpdated)
 onUnmounted(() => { uni.$off('badge:updated', onBadgeUpdated) })
 
-onShow(() => {
-   // 加载细分 badge
-    const cached = uni.getStorageSync('globalBadgeInfo')
-    if (cached) {
-        try { badgeDetail.value = JSON.parse(cached) } catch(e) {}
+const refreshBadge = async () => {
+  try {
+    const badgeRes = await request({ url: '/capi/badge', method: 'GET' })
+    if (badgeRes) {
+      // ★ 直接用接口返回的结果，只保留本地维护的未读消息数
+      const oldUnread = badgeDetail.value?.unreadMsgCount || 0
+      const updated = { ...badgeRes, unreadMsgCount: badgeRes.unreadMsgCount || oldUnread }
+      uni.setStorageSync('globalBadgeInfo', JSON.stringify(updated))
+      uni.$emit('badge:updated', updated)
+      badgeDetail.value = updated
     }
+  } catch(e) {}
+}
+
+onShow(() => {
+  const info = uni.getStorageSync('userInfo')
+  if (info && typeof info === 'object') userInfo.value = info
+  const cached = uni.getStorageSync('globalBadgeInfo')
+  if (cached) {
+    try { badgeDetail.value = JSON.parse(cached) } catch(e) {}
+  }
+  refreshBadge()
+})
+
+onHide(() => {
+  // 离开通知页面后刷新红点（用户可能已读了通知）
+  request({ url: '/capi/badge', method: 'GET' }).then(badgeRes => {
+    if (badgeRes) {
+      let old = {}
+      try { old = JSON.parse(uni.getStorageSync('globalBadgeInfo')) } catch(e) {}
+      const updated = { ...old, ...badgeRes, unreadMsgCount: old.unreadMsgCount || 0 }
+      uni.setStorageSync('globalBadgeInfo', JSON.stringify(updated))
+      uni.$emit('badge:updated', updated)
+    }
+  }).catch(() => {})
 })
 </script>
 
@@ -186,6 +226,7 @@ onShow(() => {
         margin-bottom: 24px;
         
         .icon-wrapper {
+        position: relative;
           width: 54px;
           height: 54px;
           border-radius: 16px;

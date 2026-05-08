@@ -76,17 +76,26 @@
         <u-input v-model="publishForm.title" placeholder="请输入通知标题" border="surround" clearable />
         <view class="field-label">内容</view>
         <u-textarea v-model="publishForm.content" placeholder="请输入通知内容" autoHeight border="surround" />
-        <view class="field-label">选择班级</view>
-        <picker mode="selector" :range="publishClassNameList" :value="publishClassIndex" @change="handlePublishClassChange">
+        <view class="field-label">发布范围</view>
+        <picker mode="selector" :range="scopeTypeOptions" :value="scopeTypeIndex" @change="handleScopeTypeChange">
           <view class="picker-box">
-            {{ publishClassNameList[publishClassIndex] || '暂无可选班级' }}
+            {{ scopeTypeOptions[scopeTypeIndex] }}
           </view>
         </picker>
+        <view v-if="scopeTypeIndex === 1">
+          <view class="field-label">选择班级</view>
+          <picker mode="selector" :range="publishClassNameList" :value="publishClassIndex" @change="handlePublishClassChange">
+            <view class="picker-box">
+              {{ publishClassNameList[publishClassIndex] || '暂无可选班级' }}
+            </view>
+          </picker>
+        </view>
         <u-button
           type="primary"
           text="发布"
           :loading="publishLoading"
           @click="submitPublish"
+          :customStyle="{ marginTop: '16px' }"
         />
       </view>
     </view>
@@ -114,6 +123,7 @@ const publishForm = ref({
 })
 const publishClasses = ref([])
 const publishClassIndex = ref(0)
+
 let removeNoticePushListener = null
 const READ_STORE_KEY = 'notice_read_ids'
 
@@ -264,6 +274,14 @@ const handlePublishClassChange = (e) => {
   publishClassIndex.value = Number.isNaN(idx) ? 0 : idx
 }
 
+const handleScopeTypeChange = (e) => {
+  const idx = Number(e?.detail?.value ?? 0)
+  scopeTypeIndex.value = Number.isNaN(idx) ? 0 : idx
+}
+
+const scopeTypeIndex = ref(0)
+const scopeTypeOptions = ['全量通知', '按班级']
+
 const submitPublish = async () => {
   const title = String(publishForm.value.title || '').trim()
   const content = String(publishForm.value.content || '').trim()
@@ -271,24 +289,30 @@ const submitPublish = async () => {
     uni.showToast({ title: '请填写标题和内容', icon: 'none' })
     return
   }
-  const selectedClass = publishClasses.value[publishClassIndex.value]
-  if (!selectedClass?.classId) {
-    uni.showToast({ title: '请选择班级', icon: 'none' })
-    return
+
+  let scopeType = 1
+  let scopeData = {}
+
+  if (scopeTypeIndex.value === 1) {
+    const selectedClass = publishClasses.value[publishClassIndex.value]
+    if (!selectedClass?.classId) {
+      uni.showToast({ title: '请选择班级', icon: 'none' })
+      return
+    }
+    scopeType = 3
+    scopeData = { classId: selectedClass.classId, classIds: [selectedClass.classId] }
   }
+
   publishLoading.value = true
   try {
     await request({
       url: '/capi/notice/publish',
       method: 'POST',
-      data: {
-        title,
-        content,
-        scopeType: 3,
-        scopeData: { classId: selectedClass.classId, classIds: [selectedClass.classId] }
-      }
+      data: { title, content, scopeType, scopeData }
     })
     uni.showToast({ title: '发布成功', icon: 'success' })
+    publishForm.value = { title: '', content: '' }
+    scopeTypeIndex.value = 0
     await loadNotices({ reset: true })
   } catch (e) {
     const msg = String(e?.message || '')
@@ -339,10 +363,18 @@ onShow(() => {
 })
 
 onHide(() => {
-  if (typeof removeNoticePushListener === 'function') {
-    removeNoticePushListener()
-    removeNoticePushListener = null
-  }
+  // ★ 离开通知页面后刷新红点（因为用户可能已经读了通知）
+  try {
+    request({ url: '/capi/badge', method: 'GET' }).then(badgeRes => {
+      if (badgeRes) {
+        let old = {}
+        try { old = JSON.parse(uni.getStorageSync('globalBadgeInfo')) } catch(e) {}
+        const updated = { ...old, ...badgeRes, unreadMsgCount: old.unreadMsgCount || 0 }
+        uni.setStorageSync('globalBadgeInfo', JSON.stringify(updated))
+        uni.$emit('badge:updated', updated)
+      }
+    })
+  } catch(e) {}
 })
 
 onUnload(() => {

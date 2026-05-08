@@ -111,32 +111,21 @@ const badgeText = computed(() => {
 
 const loadBadgeInfo = async () => {
   try {
-    const res = await request({
-      url: '/capi/badge',
-      method: 'GET'
-    })
-    // Ensure we handle both potential response structures from the backend
+    const res = await request({ url: '/capi/badge', method: 'GET' })
     if (res) {
-      // KEEP the local unreadMsgCount because the backend /capi/badge interface
-      // relies on a buggy SQL (countTotalUnread) that often returns 0 incorrectly.
-      // We rely exclusively on index.vue to calculate and pass the true unreadCount.
       const currentUnread = badgeInfo.value.unreadMsgCount || 0
       badgeInfo.value = {
-        ...badgeInfo.value,
         ...res,
-        unreadMsgCount: currentUnread
+        unreadMsgCount: res.unreadMsgCount || currentUnread
       }
       saveGlobalBadgeInfo(badgeInfo.value)
-      uni.$emit('badge:updated', badgeInfo.value) 
+      uni.$emit('badge:updated', badgeInfo.value)
     }
-  } catch (e) {
-    // console.warn('Load badge info error', e)
-  }
+  } catch (e) {}
 }
 
 // Global WebSocket listener for background tabs
 let removeWsListener = null
-let removeBadgeListener = null
 
 const processedMsgIds = new Set()
 
@@ -167,28 +156,34 @@ const currentUserId = uni.getStorageSync('uid') || uni.getStorageSync('userInfo'
   saveGlobalBadgeInfo(badgeInfo.value)
 }
 
-// Load badge info automatically when the bottom nav component is rendered
+let removeBadgeEventListener = null
+let badgeTimer = null 
 onMounted(() => {
   loadBadgeInfo()
   removeWsListener = imSocket.onMessage(handleWsPayload)
-  //监听 badge WebSocket 推送
-    removeBadgeListener = imSocket.onBadge((badge) => {
-        if (badge) {
-            const currentUnread = badgeInfo.value.unreadMsgCount || 0
-            badgeInfo.value = {
-                ...badgeInfo.value,
-                ...badge,
-                unreadMsgCount: currentUnread  // 保留本地维护的未读数
-            }
-            saveGlobalBadgeInfo(badgeInfo.value)
-            uni.$emit('badge:updated', badgeInfo.value) 
-        }
-    })
+  
+  // 监听其他页面发出的 badge:updated 事件
+  const handleBadgeEvent = (badge) => {
+    if (badge) {
+      badgeInfo.value = badge
+      saveGlobalBadgeInfo(badgeInfo.value)
+    }
+  }
+  uni.$on('badge:updated', handleBadgeEvent)
+  removeBadgeEventListener = () => uni.$off('badge:updated', handleBadgeEvent)
+
+  badgeTimer = setInterval(() => {
+    loadBadgeInfo()
+  }, 5000)
 })
 
 onUnmounted(() => {
- if (typeof removeWsListener === 'function') removeWsListener()
- if (typeof removeBadgeListener === 'function') removeBadgeListener()
+  if (typeof removeWsListener === 'function') removeWsListener()
+  if (typeof removeBadgeEventListener === 'function') removeBadgeEventListener()
+   if (badgeTimer) {                      // ★ 新增
+    clearInterval(badgeTimer)
+    badgeTimer = null
+  }
 })
 
 defineExpose({ loadBadgeInfo })
