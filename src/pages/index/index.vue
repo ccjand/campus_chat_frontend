@@ -24,7 +24,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import { onShow, onHide, onUnload } from '@dcloudio/uni-app'
 import uIcon from 'uview-plus/components/u-icon/u-icon.vue'
 import MessageList from '@/components/MessageList.vue'
@@ -285,6 +285,10 @@ onShow(() => {
   if (typeof removeWsListener !== 'function') {
     removeWsListener = imSocket.onMessage(handleWsPayload)
   }
+})
+
+onMounted(() => {
+  loadRecentContacts()
 })
 
 onHide(() => {

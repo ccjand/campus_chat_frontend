@@ -14,11 +14,9 @@ let reconnectAttempts = 0
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 30000
 
-// ===== 新增：接收缓冲区 + 心跳 =====
 let rxBuffer = ''
 let lastPongAt = 0
 let heartbeatTimer = null
-// 心跳 10s 发一次；25s 没收到任何数据就判死
 const HEARTBEAT_INTERVAL_MS = 10000
 const HEARTBEAT_TIMEOUT_MS = 25000
 
@@ -61,12 +59,10 @@ const parseStompFrame = (data) => {
 const notifyMessageListeners = (p) => messageListeners.forEach((fn) => { try { fn(p) } catch (e) { console.error(e) } })
 const notifyStatusListeners = (s) => statusListeners.forEach((fn) => { try { fn(s) } catch (e) { } })
 
-// ===== 新增：心跳 =====
 const startHeartbeat = () => {
   stopHeartbeat()
   lastPongAt = Date.now()
   heartbeatTimer = setInterval(() => {
-    // 超过阈值没收到任何服务端数据，判定连接已死
     if (Date.now() - lastPongAt > HEARTBEAT_TIMEOUT_MS) {
       console.warn('WS：心跳超时，主动触发重连')
       const dying = socketTask
@@ -78,7 +74,6 @@ const startHeartbeat = () => {
       scheduleReconnect()
       return
     }
-    // 客户端心跳：STOMP 里心跳就是一个单独的 \n
     try {
       if (socketTask && connected) socketTask.send({ data: '\n' })
     } catch (e) {
@@ -94,7 +89,7 @@ const scheduleReconnect = () => {
   if (manualDisconnect || !currentToken || reconnectTimer) return
   const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * Math.pow(2, reconnectAttempts))
   reconnectAttempts += 1
-  console.log(`WS：${delay}ms 后第 ${reconnectAttempts} 次重连`)
+  console.log('WS：' + delay + 'ms 后第 ' + reconnectAttempts + ' 次重连')
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null
     connect({ token: currentToken, terminalType: currentTerminalType }).catch(() => scheduleReconnect())
@@ -110,20 +105,14 @@ const connect = ({ token, terminalType }) => {
   manualDisconnect = false
   currentToken = token
   currentTerminalType = terminalType
-
-  // 新建连接前重置接收缓冲区，避免上次残留污染
   rxBuffer = ''
 
   connectingPromise = new Promise((resolve, reject) => {
     notifyStatusListeners('connecting')
-    // 握手阶段同时把 token 放到 URL query，后端 HandshakeInterceptor 兜底能拿到
     const url = WS_URL + (WS_URL.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token)
     console.log('WS：准备连接', url)
 
-    socketTask = uni.connectSocket({
-      url,
-      complete: () => { }
-    })
+    socketTask = uni.connectSocket({ url, complete: () => { } })
     if (!socketTask) {
       connectingPromise = null
       reject(new Error('connectSocket failed'))
@@ -148,7 +137,7 @@ const connect = ({ token, terminalType }) => {
       if (!socketTask) return
       socketTask.send({
         data: encodeStompFrame('CONNECT', {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': 'Bearer ' + token,
           'accept-version': '1.2,1.1,1.0',
           'heart-beat': '10000,10000'
         })
@@ -158,75 +147,100 @@ const connect = ({ token, terminalType }) => {
     socketTask.onError((err) => handleFail(err))
     socketTask.onClose((err) => handleFail(err))
 
-    socketTask.onMessage((evt) => {
-      const data = evt?.data
-      if (typeof data !== 'string') return
+    const processFrame = (raw) => {
+      const frame = parseStompFrame(raw)
+      if (!frame) return
 
-      // 任何数据到达都刷新"存活时间戳"
-      lastPongAt = Date.now()
-
-      // 把本次收到的数据拼到缓冲区，然后按 \x00 逐帧切出完整帧
-      rxBuffer += data
-      // 先消费掉前导的心跳 \n
-      while (rxBuffer.length && rxBuffer[0] === '\n') rxBuffer = rxBuffer.slice(1)
-
-      let idx
-      while ((idx = rxBuffer.indexOf('\x00')) !== -1) {
-        const raw = rxBuffer.slice(0, idx)
-        rxBuffer = rxBuffer.slice(idx + 1)
-        // 帧间的心跳 \n 也消费掉
-        while (rxBuffer.length && rxBuffer[0] === '\n') rxBuffer = rxBuffer.slice(1)
-
-        const frame = parseStompFrame(raw)
-        if (!frame) continue
-
-        if (frame.command === 'CONNECTED') {
+      if (frame.command === 'CONNECTED') {
           console.log('STOMP 已连接')
           connected = true
           clearReconnect()
           startHeartbeat()
           notifyStatusListeners('connected')
 
-          try {
-            socketTask.send({ data: encodeStompFrame('SUBSCRIBE', { id: 'sub-user-queue', destination: '/user/queue/messages' }) })
-            socketTask.send({ data: encodeStompFrame('SUBSCRIBE', { id: 'sub-user-badge', destination: '/user/queue/badge' }) })
-
-
-            socketTask.send({
-              data: encodeStompFrame('SUBSCRIBE', {
-                id: 'sub-user-badge',
-                destination: '/user/queue/badge'
+          // ★ 延迟 500ms 发订阅，确保连接完全就绪（App 端兼容）
+          setTimeout(() => {
+            try {
+              socketTask.send({
+                data: encodeStompFrame('SUBSCRIBE', { id: 'sub-user-queue', destination: '/user/queue/messages' }),
+                success: () => console.log('SUBSCRIBE /user/queue/messages ✅'),
+                fail: (err) => console.error('SUBSCRIBE /user/queue/messages ❌', err)
               })
-            })
-            activeSubscriptions.forEach((destination, subId) => {
-              if (subId === 'sub-user-queue' || subId === 'sub-user-badge') return
-              socketTask.send({ data: encodeStompFrame('SUBSCRIBE', { id: subId, destination }) })
-            })
-          } catch (e) {
-            console.error('WS：恢复订阅失败', e)
-          }
+              socketTask.send({
+                data: encodeStompFrame('SUBSCRIBE', { id: 'sub-user-badge', destination: '/user/queue/badge' }),
+                success: () => console.log('SUBSCRIBE /user/queue/badge ✅'),
+                fail: (err) => console.error('SUBSCRIBE /user/queue/badge ❌', err)
+              })
+              activeSubscriptions.forEach((destination, subId) => {
+                if (subId === 'sub-user-queue' || subId === 'sub-user-badge') return
+                socketTask.send({
+                  data: encodeStompFrame('SUBSCRIBE', { id: subId, destination }),
+                  success: () => console.log('SUBSCRIBE ' + destination + ' ✅'),
+                  fail: (err) => console.error('SUBSCRIBE ' + destination + ' ❌', err)
+                })
+              })
+            } catch (e) {
+              console.error('WS：恢复订阅失败', e)
+            }
+          }, 500)
 
           connectingPromise = null
           resolve(true)
-        } else if (frame.command === 'MESSAGE') {
-          console.log('STOMP MESSAGE', frame.headers?.destination, frame.body)
-          const dest = frame.headers?.destination || ''
-          if (dest.includes('/queue/badge')) {
-            const parsed = safeJsonParse(frame.body)
-            if (parsed) badgeListeners.forEach((fn) => { try { fn(parsed) } catch (e) { console.error(e) } })
-          } else {
-            notifyMessageListeners(frame.body)
-          }
-        } else if (frame.command === 'ERROR') {
-          console.error('STOMP ERROR', frame.headers, frame.body)
-          if (!connected) {
-            connectingPromise = null
-            reject(new Error(frame.headers?.message || 'STOMP Error'))
-          }
+        }
+      else if (frame.command === 'MESSAGE') {
+        console.log('STOMP MESSAGE', frame.headers?.destination, frame.body)
+        const dest = frame.headers?.destination || ''
+        if (dest.includes('/queue/badge')) {
+          const parsed = (frame.body && typeof frame.body === 'object') ? frame.body : safeJsonParse(frame.body)
+          if (parsed) badgeListeners.forEach((fn) => { try { fn(parsed) } catch (e) { console.error(e) } })
+        } else {
+          notifyMessageListeners(frame.body)
+        }
+
+      } else if (frame.command === 'ERROR') {
+        console.error('STOMP ERROR', frame.headers, frame.body)
+        if (!connected) {
+          connectingPromise = null
+          reject(new Error(frame.headers?.message || 'STOMP Error'))
         }
       }
-      // 剩下的 rxBuffer 里是"没收完的半个帧"，等下一个 onMessage 事件来继续拼
+    }
+
+
+
+    socketTask.onMessage((evt) => {
+      let data = evt?.data
+      // ★ 兼容 App 端可能返回 ArrayBuffer
+      if (data instanceof ArrayBuffer) {
+        try { data = String.fromCharCode.apply(null, new Uint8Array(data)) } catch(e) { return }
+      }
+      if (typeof data !== 'string') return
+
+      lastPongAt = Date.now()
+
+      rxBuffer += data
+      while (rxBuffer.length && rxBuffer[0] === '\n') rxBuffer = rxBuffer.slice(1)
+
+      // ★ 修复：兼容 App 端不带 \x00 的情况
+      // 优先用 \x00 切帧（H5 标准行为）
+      let idx
+      while ((idx = rxBuffer.indexOf('\x00')) !== -1) {
+        const raw = rxBuffer.slice(0, idx)
+        rxBuffer = rxBuffer.slice(idx + 1)
+        while (rxBuffer.length && rxBuffer[0] === '\n') rxBuffer = rxBuffer.slice(1)
+        processFrame(raw)
+      }
+
+      // ★ 兜底：如果没有 \x00 但 buffer 里有完整帧（App 原生端常见）
+      // 检测是否以 STOMP 命令开头且包含 \n\n（头部结束标志）
+      if (rxBuffer.length > 0 && /^(CONNECTED|MESSAGE|ERROR|RECEIPT)/.test(rxBuffer) && rxBuffer.includes('\n\n')) {
+        const raw = rxBuffer
+        rxBuffer = ''
+        processFrame(raw)
+      }
     })
+
+
   })
 
   return connectingPromise
@@ -285,7 +299,6 @@ const send = async (destination, data) => {
 const subscribe = async (destination, id) => {
   activeSubscriptions.set(id, destination)
   try { if (!connected) await awaitConnected() } catch (e) { return }
-  // 二次兜底：awaitConnected 可能因 timeout 直接返回而 socketTask 仍是 null
   if (!socketTask || !connected) {
     console.warn('WS：subscribe 时连接尚未建立，将在重连后由 activeSubscriptions 自动恢复', destination)
     return
@@ -310,12 +323,6 @@ const unsubscribe = (id) => {
   } catch (e) { }
 }
 
-/**
- * 从后台回到前台时调用：主动探测连接是否还活着。
- *   - 如果标志位是 disconnected，直接走 connect
- *   - 如果标志位是 connected，发一个心跳探测，3 秒内没收到任何数据就强制重连
- * 这是用来兜底 iOS/Android 后台把 socket 悄悄杀掉但 onClose 没触发的情况。
- */
 const revalidate = () => {
   if (manualDisconnect) return
   if (!currentToken) {
@@ -324,17 +331,14 @@ const revalidate = () => {
     currentToken = token
   }
   if (!connected || !socketTask) {
-    // 没连上就直接连
     connect({ token: currentToken, terminalType: currentTerminalType }).catch((e) => {
       console.warn('WS revalidate connect fail', e?.message || e)
     })
     return
   }
-  // 连着的情况：发一个心跳探测
   const probeAt = Date.now()
   try { socketTask.send({ data: '\n' }) } catch (e) { }
   setTimeout(() => {
-    // 3 秒内没有任何数据到达 → 认为连接已死
     if (lastPongAt < probeAt) {
       console.warn('WS：revalidate 探测失败，强制重连')
       const dying = socketTask
