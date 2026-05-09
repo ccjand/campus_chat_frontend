@@ -52,19 +52,14 @@ export default {
         if (!payload || typeof payload !== 'object') return
         if (payload.event === 'notice') {
           uni.$emit('event:notice-pushed', payload)
-          var noticeTitle = payload.title ? ('\u65b0\u901a\u77e5\uff1a' + payload.title) : '\u6536\u5230\u65b0\u901a\u77e5'
-          uni.showToast({ title: noticeTitle, icon: 'none' })
           this.refreshGlobalBadge()
           return
         }
         if (payload.event === 'exam') {
           uni.$emit('event:exam-pushed', payload)
-          var examTitle = payload.name ? ('\u65b0\u8003\u8bd5\uff1a' + payload.name) : '\u6536\u5230\u65b0\u8003\u8bd5\u5b89\u6392'
-          uni.showToast({ title: examTitle, icon: 'none' })
           return
         }
         if (payload.event === 'leave_pending') {
-          uni.showToast({ title: '\u6536\u5230\u65b0\u7684\u8bf7\u5047\u7533\u8bf7', icon: 'none' })
           this.refreshGlobalBadge()
           return
         }
